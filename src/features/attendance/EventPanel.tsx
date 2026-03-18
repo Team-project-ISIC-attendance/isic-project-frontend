@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Pencil, Upload, List, LayoutGrid } from "lucide-react";
 import type { components } from "@/api/schema";
 import {
-  fetchLessonAttendance,
   updateAttendanceStatus,
   downloadStudentsExport,
 } from "@/api/attendance";
@@ -13,6 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StudentCard } from "./StudentCard";
+import { useLiveAttendance } from "./useLiveAttendance";
 
 type AttendanceResponse = components["schemas"]["AttendanceResponse"];
 type AttendanceSummary = components["schemas"]["AttendanceSummary"];
@@ -100,48 +100,39 @@ export function EventPanel({
   open,
   onOpenChange,
 }: EventPanelProps) {
-  const [data, setData] = useState<AttendanceResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { data, loading, changedIds } = useLiveAttendance(lessonId, open);
   const [activeView, setActiveView] = useState<"list" | "grid">("list");
+  const [optimistic, setOptimistic] = useState<Map<number, string>>(new Map());
 
-  const loadAttendance = useCallback(async (id: number) => {
-    setLoading(true);
-    try {
-      const result = await fetchLessonAttendance(id);
-      setData(result);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  // Clear optimistic map when lesson changes
   useEffect(() => {
-    if (open && lessonId !== null) {
-      loadAttendance(lessonId);
+    async function reset() {
+      setOptimistic(new Map());
     }
-    if (!open) {
-      setData(null);
-    }
-  }, [open, lessonId, loadAttendance]);
+    reset();
+  }, [lessonId]);
 
   function handleStatusChange(attendanceId: number, newStatus: string) {
-    if (!data) return;
-
-    const prevStudents = data.students;
-    const updatedStudents = data.students.map((s) =>
-      s.attendance_id === attendanceId ? { ...s, status: newStatus } : s,
-    );
-    const updatedSummary = recalcSummary(updatedStudents);
-
-    setData({ ...data, students: updatedStudents, summary: updatedSummary });
+    setOptimistic((prev) => new Map(prev).set(attendanceId, newStatus));
 
     updateAttendanceStatus(attendanceId, newStatus).catch(() => {
-      setData({
-        ...data,
-        students: prevStudents,
-        summary: recalcSummary(prevStudents),
+      setOptimistic((prev) => {
+        const next = new Map(prev);
+        next.delete(attendanceId);
+        return next;
       });
     });
   }
+
+  // Merge polled data with optimistic updates
+  const rawStudents = data?.students ?? [];
+  const mergedStudents = rawStudents.map((s) => {
+    const opt = optimistic.get(s.attendance_id);
+    if (opt !== undefined && opt !== s.status) {
+      return { ...s, status: opt };
+    }
+    return s;
+  });
 
   function handleExport() {
     if (subjectId !== null) {
@@ -150,8 +141,10 @@ export function EventPanel({
   }
 
   const lesson = data?.lesson;
-  const students = data?.students ?? [];
-  const summary = data?.summary ?? { total: 0, pritomny: 0, nepritomny: 0, nahrada: 0 };
+  const students = mergedStudents;
+  const summary = students.length > 0
+    ? recalcSummary(students)
+    : { total: 0, pritomny: 0, nepritomny: 0, nahrada: 0 };
   const typeConfig = lesson
     ? LESSON_TYPE_CONFIG[lesson.lesson_type] ?? LESSON_TYPE_CONFIG.cvicenie
     : LESSON_TYPE_CONFIG.cvicenie;
@@ -256,6 +249,7 @@ export function EventPanel({
                       key={student.attendance_id}
                       student={student}
                       onStatusChange={handleStatusChange}
+                      justScanned={changedIds.has(student.attendance_id)}
                     />
                   ))}
                 </div>

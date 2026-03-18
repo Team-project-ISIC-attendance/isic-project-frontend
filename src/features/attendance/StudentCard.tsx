@@ -14,9 +14,10 @@ type AttendanceStudentEntry = components["schemas"]["AttendanceStudentEntry"];
 interface StudentCardProps {
   student: AttendanceStudentEntry;
   onStatusChange: (attendanceId: number, status: string) => void;
+  justScanned?: boolean;
 }
 
-export function StudentCard({ student, onStatusChange }: StudentCardProps) {
+export function StudentCard({ student, onStatusChange, justScanned }: StudentCardProps) {
   const initials =
     (student.first_name?.[0] ?? "") + (student.last_name?.[0] ?? "");
   const fullName = [student.first_name, student.last_name]
@@ -24,7 +25,10 @@ export function StudentCard({ student, onStatusChange }: StudentCardProps) {
     .join(" ");
 
   return (
-    <div className="flex items-center justify-between rounded-lg border-[0.5px] border-border-custom bg-white px-3 py-2">
+    <div
+      className="flex items-center justify-between rounded-lg border-[0.5px] border-border-custom bg-white px-3 py-2"
+      style={{ animation: justScanned ? "scan-highlight 1.5s ease-out" : undefined }}
+    >
       <div className="flex items-center gap-3">
         <Avatar>
           <AvatarFallback className="bg-gray-200 text-xs font-medium text-gray-600">
