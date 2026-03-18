@@ -13,6 +13,7 @@ import { WeekSidebar } from "@/features/calendar/WeekSidebar";
 import { CalendarGrid } from "@/features/calendar/CalendarGrid";
 import { SemesterFormDialog } from "@/features/calendar/SemesterFormDialog";
 import { ScheduleEntryFormDialog } from "@/features/calendar/ScheduleEntryFormDialog";
+import { EventPanel } from "@/features/attendance/EventPanel";
 
 type SemesterResponse = components["schemas"]["SemesterResponse"];
 type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
@@ -33,6 +34,11 @@ export function CalendarPage() {
   const [semesterFormOpen, setSemesterFormOpen] = useState(false);
   const [scheduleEntryFormOpen, setScheduleEntryFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedLessonId, setSelectedLessonId] = useState<number | null>(null);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(
+    null,
+  );
+  const [eventPanelOpen, setEventPanelOpen] = useState(false);
 
   // Build lesson map: schedule_entry_id → lesson_id
   const lessonMap = new Map<number, number>();
@@ -160,7 +166,11 @@ export function CalendarPage() {
         <CalendarGrid
           scheduleEntries={schedule}
           lessonMap={lessonMap}
-          onBlockClick={() => {}}
+          onBlockClick={(lessonId, entry) => {
+            setSelectedLessonId(lessonId);
+            setSelectedSubjectId(entry.subject_id);
+            setEventPanelOpen(true);
+          }}
         />
       </div>
 
@@ -180,6 +190,13 @@ export function CalendarPage() {
           onSubjectCreated={handleSubjectCreated}
         />
       )}
+
+      <EventPanel
+        lessonId={selectedLessonId}
+        subjectId={selectedSubjectId}
+        open={eventPanelOpen}
+        onOpenChange={setEventPanelOpen}
+      />
     </div>
   );
 }
