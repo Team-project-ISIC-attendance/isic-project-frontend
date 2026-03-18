@@ -194,9 +194,7 @@ export function CalendarGrid({
                         )}
                       </div>
                       <div className="font-body text-xs text-text-secondary">
-                        {entry.lesson_type === "prednaska"
-                          ? "Prednáška"
-                          : "Cvičenie"}
+                        {{ prednaska: "Prednáška", cvicenie: "Cvičenie", laboratorium: "Laboratórium" }[entry.lesson_type] ?? entry.lesson_type}
                       </div>
                     </div>
                   );
