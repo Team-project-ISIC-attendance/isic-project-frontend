@@ -1,18 +1,15 @@
-import { Navigate, Route, Routes, useLocation } from "react-router";
-import { Login } from "./pages/login";
-import { Dashboard } from "./pages/dashboard";
+import { Route, Routes } from "react-router";
+import { LoginPage } from "./pages/LoginPage";
+import { CalendarPage } from "./pages/CalendarPage";
+import { ProtectedRoute } from "./components/layout/ProtectedRoute";
 
 function App() {
-  const location = useLocation();
-
-  if (location.pathname === "/") {
-    return <Navigate to="/login" />;
-  }
-
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<ProtectedRoute />}>
+        <Route path="/" element={<CalendarPage />} />
+      </Route>
     </Routes>
   );
 }
