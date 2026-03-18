@@ -1,0 +1,64 @@
+import type { components } from "./schema";
+import { apiFetch, getToken } from "./client";
+
+type AttendanceResponse = components["schemas"]["AttendanceResponse"];
+type AttendanceUpdateResponse =
+  components["schemas"]["AttendanceUpdateResponse"];
+
+const API_URL = import.meta.env.VITE_API_URL as string;
+
+export function fetchLessonAttendance(
+  lessonId: number,
+): Promise<AttendanceResponse> {
+  return apiFetch<AttendanceResponse>(`/lessons/${lessonId}/attendance`);
+}
+
+export function updateAttendanceStatus(
+  attendanceId: number,
+  status: string,
+): Promise<AttendanceUpdateResponse> {
+  return apiFetch<AttendanceUpdateResponse>(`/attendance/${attendanceId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function downloadStudentsExport(
+  subjectId: number,
+  format: string = "csv",
+): Promise<void> {
+  const token = getToken();
+  const headers: HeadersInit = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(
+    `${API_URL}/subjects/${subjectId}/export/students?format=${format}`,
+    { headers },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Export failed: HTTP ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+
+  const disposition = response.headers.get("Content-Disposition");
+  let filename = `students.${format}`;
+  if (disposition) {
+    const match = disposition.match(/filename="?([^";\n]+)"?/);
+    if (match) {
+      filename = match[1];
+    }
+  }
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

@@ -11,7 +11,7 @@ const DAYS = ["Po", "Ut", "St", "Št", "Pi"] as const;
 interface CalendarGridProps {
   scheduleEntries: ScheduleEntryResponse[];
   lessonMap: Map<number, number>;
-  onBlockClick?: (lessonId: number) => void;
+  onBlockClick?: (lessonId: number, entry: ScheduleEntryResponse) => void;
 }
 
 function parseTime(time: string): { hour: number; minute: number } {
@@ -179,7 +179,7 @@ export function CalendarGrid({
                       }}
                       onClick={() => {
                         if (lessonId !== undefined && onBlockClick) {
-                          onBlockClick(lessonId);
+                          onBlockClick(lessonId, entry);
                         }
                       }}
                     >
