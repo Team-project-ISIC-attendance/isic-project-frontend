@@ -151,3 +151,8 @@
         @apply font-sans;
     }
 }
+
+@keyframes scan-highlight {
+    0% { background-color: rgba(194, 238, 204, 0.8); }
+    100% { background-color: transparent; }
+}
