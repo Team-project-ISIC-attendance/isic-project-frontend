@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -38,6 +37,17 @@
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.708 0 0);
+
+    --color-success: #03781D;
+    --color-warning: #E9C400;
+    --color-danger: #BA1717;
+    --color-danger-bg: #FEE1E1;
+    --color-success-bg: rgba(194, 238, 204, 0.5);
+    --color-warning-bg: rgba(249, 236, 170, 0.5);
+    --color-text: #333333;
+    --color-text-secondary: #7C7C7C;
+    --color-border-custom: rgba(197, 197, 197, 0.5);
+    --color-bg-secondary: #F5F5F5;
 }
 
 .dark {
@@ -75,7 +85,19 @@
 }
 
 @theme inline {
-    --font-sans: 'Geist Variable', sans-serif;
+    --font-sans: 'Inter', sans-serif;
+    --font-heading: 'Roboto', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --color-success: var(--color-success);
+    --color-warning: var(--color-warning);
+    --color-danger: var(--color-danger);
+    --color-danger-bg: var(--color-danger-bg);
+    --color-success-bg: var(--color-success-bg);
+    --color-warning-bg: var(--color-warning-bg);
+    --color-text: var(--color-text);
+    --color-text-secondary: var(--color-text-secondary);
+    --color-border-custom: var(--color-border-custom);
+    --color-bg-secondary: var(--color-bg-secondary);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -117,13 +139,15 @@
 }
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
+    * {
+        @apply border-border outline-ring/50;
     }
-  body {
-    @apply bg-background text-foreground;
+    body {
+        @apply bg-background text-foreground;
+        font-family: var(--font-body);
+        color: var(--color-text);
     }
-  html {
-    @apply font-sans;
+    html {
+        @apply font-sans;
     }
 }
