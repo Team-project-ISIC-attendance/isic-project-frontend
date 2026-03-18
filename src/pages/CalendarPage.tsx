@@ -14,6 +14,7 @@ import { CalendarGrid } from "@/features/calendar/CalendarGrid";
 import { SemesterFormDialog } from "@/features/calendar/SemesterFormDialog";
 import { ScheduleEntryFormDialog } from "@/features/calendar/ScheduleEntryFormDialog";
 import { EventPanel } from "@/features/attendance/EventPanel";
+import { ImportStudentsModal } from "@/features/import/ImportStudentsModal";
 
 type SemesterResponse = components["schemas"]["SemesterResponse"];
 type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
@@ -39,6 +40,7 @@ export function CalendarPage() {
     null,
   );
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   // Build lesson map: schedule_entry_id → lesson_id
   const lessonMap = new Map<number, number>();
@@ -153,8 +155,9 @@ export function CalendarPage() {
         onSemesterChange={handleSemesterChange}
         activeWeekDisplay={activeWeekDisplay}
         onCreateSemester={() => setSemesterFormOpen(true)}
-        onImportStudents={() => {}}
+        onImportStudents={() => setImportModalOpen(true)}
         onAddScheduleEntry={() => setScheduleEntryFormOpen(true)}
+        subjects={subjects}
       />
       <div className="flex flex-1 overflow-hidden">
         <WeekSidebar
@@ -196,6 +199,17 @@ export function CalendarPage() {
         subjectId={selectedSubjectId}
         open={eventPanelOpen}
         onOpenChange={setEventPanelOpen}
+      />
+
+      <ImportStudentsModal
+        open={importModalOpen}
+        onOpenChange={setImportModalOpen}
+        subjects={subjects}
+        onImported={async () => {
+          if (selectedSemesterId !== null) {
+            await loadSemesterData(selectedSemesterId, activeWeek);
+          }
+        }}
       />
     </div>
   );

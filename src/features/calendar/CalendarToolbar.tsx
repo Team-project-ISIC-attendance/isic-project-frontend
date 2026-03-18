@@ -8,8 +8,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ExportButton } from "@/features/export/ExportButton";
 
 type SemesterResponse = components["schemas"]["SemesterResponse"];
+type SubjectResponse = components["schemas"]["SubjectResponse"];
 
 interface CalendarToolbarProps {
   semesters: SemesterResponse[];
@@ -19,6 +21,7 @@ interface CalendarToolbarProps {
   onCreateSemester: () => void;
   onImportStudents: () => void;
   onAddScheduleEntry: () => void;
+  subjects: SubjectResponse[];
 }
 
 export function CalendarToolbar({
@@ -29,6 +32,7 @@ export function CalendarToolbar({
   onCreateSemester,
   onImportStudents,
   onAddScheduleEntry,
+  subjects,
 }: CalendarToolbarProps) {
   const selectedSemester = semesters.find((s) => s.id === selectedSemesterId);
 
@@ -76,6 +80,10 @@ export function CalendarToolbar({
           <Upload className="mr-1 h-4 w-4" />
           Import študentov
         </Button>
+
+        {selectedSemesterId !== null && subjects.length > 0 && (
+          <ExportButton subjects={subjects} semesterId={selectedSemesterId} />
+        )}
 
         <Button size="sm" onClick={onAddScheduleEntry}>
           <Plus className="mr-1 h-4 w-4" />

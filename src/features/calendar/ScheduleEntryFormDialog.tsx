@@ -294,12 +294,13 @@ export function ScheduleEntryFormDialog({
             <Select value={lessonType} onValueChange={(val) => { if (val !== null) setLessonType(val); }}>
               <SelectTrigger className="w-full">
                 <SelectValue>
-                  {lessonType === "prednaska" ? "Prednáška" : "Cvičenie"}
+                  {{ prednaska: "Prednáška", cvicenie: "Cvičenie", laboratorium: "Laboratórium" }[lessonType] ?? lessonType}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="prednaska">Prednáška</SelectItem>
                 <SelectItem value="cvicenie">Cvičenie</SelectItem>
+                <SelectItem value="laboratorium">Laboratórium</SelectItem>
               </SelectContent>
             </Select>
           </div>
