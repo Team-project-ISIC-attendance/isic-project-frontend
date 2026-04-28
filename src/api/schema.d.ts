@@ -731,6 +731,18 @@ export interface components {
             room?: string | null;
             /** Lesson Type */
             lesson_type: string;
+            /**
+             * Is One Time
+             * @default false
+             */
+            is_one_time: boolean;
+            /**
+             * Recurrence Interval
+             * @default 1
+             */
+            recurrence_interval: number;
+            /** End Date */
+            end_date?: string | null;
         };
         /** ScheduleEntryResponse */
         ScheduleEntryResponse: {
@@ -754,6 +766,12 @@ export interface components {
             room: string | null;
             /** Lesson Type */
             lesson_type: string;
+            /** Is One Time */
+            is_one_time: boolean;
+            /** Recurrence Interval */
+            recurrence_interval: number;
+            /** End Date */
+            end_date: string | null;
         };
         /** SemesterCreate */
         SemesterCreate: {
