@@ -4,6 +4,8 @@ import { apiFetch, getToken } from "./client";
 type AttendanceResponse = components["schemas"]["AttendanceResponse"];
 type AttendanceUpdateResponse =
   components["schemas"]["AttendanceUpdateResponse"];
+type AttendanceMoveResponse = components["schemas"]["AttendanceMoveResponse"];
+type LessonResponse = components["schemas"]["LessonResponse"];
 
 const API_URL = import.meta.env.VITE_API_URL as string;
 
@@ -21,6 +23,34 @@ export function updateAttendanceStatus(
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
+}
+
+export function moveAttendance(
+  attendanceId: number,
+  targetLessonId: number,
+): Promise<AttendanceMoveResponse> {
+  return apiFetch<AttendanceMoveResponse>(`/attendance/${attendanceId}/move`, {
+    method: "POST",
+    body: JSON.stringify({ target_lesson_id: targetLessonId }),
+  });
+}
+
+export function deleteEnrollment(
+  subjectId: number,
+  enrollmentId: number,
+): Promise<void> {
+  return apiFetch<void>(`/subjects/${subjectId}/students/${enrollmentId}`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchScheduleEntryLessons(
+  semesterId: number,
+  entryId: number,
+): Promise<LessonResponse[]> {
+  return apiFetch<LessonResponse[]>(
+    `/semesters/${semesterId}/schedule/${entryId}/lessons`,
+  );
 }
 
 export async function downloadStudentsExport(

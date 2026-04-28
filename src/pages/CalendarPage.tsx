@@ -193,6 +193,7 @@ export function CalendarPage() {
       <EventPanel
         lessonId={selectedLessonId}
         subjectId={selectedSubjectId}
+        semesterId={selectedSemesterId}
         open={eventPanelOpen}
         onOpenChange={setEventPanelOpen}
       />

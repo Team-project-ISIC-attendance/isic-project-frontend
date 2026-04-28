@@ -14,10 +14,20 @@ type AttendanceStudentEntry = components["schemas"]["AttendanceStudentEntry"];
 interface StudentCardProps {
   student: AttendanceStudentEntry;
   onStatusChange: (attendanceId: number, status: string) => void;
+  onMove: (student: AttendanceStudentEntry) => void;
+  onRemove: (student: AttendanceStudentEntry) => void;
+  index: number;
   justScanned?: boolean;
 }
 
-export function StudentCard({ student, onStatusChange, justScanned }: StudentCardProps) {
+export function StudentCard({
+  student,
+  onStatusChange,
+  onMove,
+  onRemove,
+  index,
+  justScanned,
+}: StudentCardProps) {
   const initials =
     (student.first_name?.[0] ?? "") + (student.last_name?.[0] ?? "");
   const fullName = [student.first_name, student.last_name]
@@ -26,18 +36,25 @@ export function StudentCard({ student, onStatusChange, justScanned }: StudentCar
 
   return (
     <div
-      className="flex items-center justify-between rounded-lg border-[0.5px] border-border-custom bg-white px-3 py-2"
-      style={{ animation: justScanned ? "scan-highlight 1.5s ease-out" : undefined }}
+      className={`flex h-[72px] items-center justify-between border-b border-[rgba(229,229,229,0.9)] px-[24px] py-[16px] ${index % 2 === 0 ? "bg-white" : "bg-[#fafafa]"}`}
+      style={{
+        animation: justScanned ? "scan-highlight 1.5s ease-out" : undefined,
+      }}
     >
       <div className="flex items-center gap-3">
         <Avatar>
-          <AvatarFallback className="bg-gray-200 text-xs font-medium text-gray-600">
+          <AvatarFallback className="bg-[#eff6ff] text-xs font-medium text-gray-600">
             {initials}
           </AvatarFallback>
         </Avatar>
-        <span className="font-body text-sm font-medium text-[#3f3f3f]">
-          {fullName}
-        </span>
+        <div className="flex flex-col">
+          <span className="font-body text-sm font-medium text-[#3f3f3f]">
+            {fullName}
+          </span>
+          <p className="text-xs text-[#525252]">
+            ID: {student.isic_identifier}
+          </p>
+        </div>
       </div>
       <div className="flex items-center gap-5">
         <StatusBadge
@@ -52,8 +69,17 @@ export function StudentCard({ student, onStatusChange, justScanned }: StudentCar
               <MoreVertical size={20} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem className="text-sm text-gray-500">
-                Žiadne akcie
+              <DropdownMenuItem
+                className="cursor-pointer text-sm text-[#404040]"
+                onSelect={() => onMove(student)}
+              >
+                Presunúť
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer text-sm text-[#dc2626]"
+                onSelect={() => onRemove(student)}
+              >
+                Odstrániť
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
