@@ -6,6 +6,7 @@ type AttendanceUpdateResponse =
   components["schemas"]["AttendanceUpdateResponse"];
 type AttendanceMoveResponse = components["schemas"]["AttendanceMoveResponse"];
 type LessonResponse = components["schemas"]["LessonResponse"];
+type OverviewResponse = components["schemas"]["OverviewResponse"];
 
 const API_URL = import.meta.env.VITE_API_URL as string;
 
@@ -50,6 +51,16 @@ export function fetchScheduleEntryLessons(
 ): Promise<LessonResponse[]> {
   return apiFetch<LessonResponse[]>(
     `/semesters/${semesterId}/schedule/${entryId}/lessons`,
+  );
+}
+
+export function fetchScheduleEntryOverview(
+  subjectId: number,
+  entryId: number,
+  semesterId: number,
+): Promise<OverviewResponse> {
+  return apiFetch<OverviewResponse>(
+    `/subjects/${subjectId}/schedule-entries/${entryId}/overview?semester_id=${semesterId}`,
   );
 }
 

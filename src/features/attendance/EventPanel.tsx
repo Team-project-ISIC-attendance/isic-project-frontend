@@ -47,6 +47,7 @@ interface EventPanelProps {
   semesterId: number | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onMaximize?: () => void;
 }
 
 function formatDate(dateStr: string, dayOfWeek: number): string {
@@ -106,6 +107,7 @@ export function EventPanel({
   semesterId,
   open,
   onOpenChange,
+  onMaximize,
 }: EventPanelProps) {
   const { data, loading, changedIds } = useLiveAttendance(lessonId, open);
   const [optimistic, setOptimistic] = useState<Map<number, string>>(new Map());
@@ -292,7 +294,10 @@ export function EventPanel({
                         1
                       </span>
                     </button>
-                    <button className="rounded-md p-1 text-gray-400 hover:text-gray-600">
+                    <button
+                      onClick={onMaximize}
+                      className="rounded-md p-1 text-gray-400 hover:text-gray-600"
+                    >
                       <Maximize2 size={16} />
                     </button>
                   </div>
