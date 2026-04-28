@@ -382,6 +382,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/subjects/{subject_id}/schedule-entries/{entry_id}/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get schedule entry attendance overview */
+        get: operations["get_overview_subjects__subject_id__schedule_entries__entry_id__overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/semesters/{semester_id}/schedule": {
         parameters: {
             query?: never;
@@ -686,6 +703,64 @@ export interface components {
         LessonUpdateRequest: {
             /** Cancelled */
             cancelled?: boolean | null;
+        };
+        /** OverviewResponse */
+        OverviewResponse: {
+            schedule_entry: components["schemas"]["OverviewScheduleEntry"];
+            /** Weeks */
+            weeks: components["schemas"]["OverviewWeek"][];
+            /** Students */
+            students: components["schemas"]["OverviewStudent"][];
+        };
+        /** OverviewScheduleEntry */
+        OverviewScheduleEntry: {
+            /** Id */
+            id: number;
+            /** Subject Name */
+            subject_name: string;
+            /** Lesson Type */
+            lesson_type: string;
+            /** Start Time */
+            start_time: string;
+            /** End Time */
+            end_time: string;
+            /** Day Of Week */
+            day_of_week: number;
+            /** Subject Color */
+            subject_color: string;
+            /** Recurrence */
+            recurrence: string;
+        };
+        /** OverviewStudent */
+        OverviewStudent: {
+            /** Isic Identifier */
+            isic_identifier: string;
+            /** First Name */
+            first_name: string | null;
+            /** Last Name */
+            last_name: string | null;
+            /** Weeks */
+            weeks: components["schemas"]["OverviewStudentWeek"][];
+        };
+        /** OverviewStudentWeek */
+        OverviewStudentWeek: {
+            /** Week Number */
+            week_number: number;
+            /** Attendance Id */
+            attendance_id: number | null;
+            /** Status */
+            status: string | null;
+        };
+        /** OverviewWeek */
+        OverviewWeek: {
+            /** Week Number */
+            week_number: number;
+            /** Date Range */
+            date_range: string;
+            /** Lesson Id */
+            lesson_id: number | null;
+            /** Is Current */
+            is_current: boolean;
         };
         /** RegisterRequest */
         RegisterRequest: {
@@ -1910,6 +1985,54 @@ export interface operations {
                 content?: never;
             };
             /** @description Subject not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_overview_subjects__subject_id__schedule_entries__entry_id__overview_get: {
+        parameters: {
+            query: {
+                semester_id: number;
+            };
+            header?: never;
+            path: {
+                subject_id: number;
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverviewResponse"];
+                };
+            };
+            /** @description Not your subject */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Entry not found */
             404: {
                 headers: {
                     [name: string]: unknown;

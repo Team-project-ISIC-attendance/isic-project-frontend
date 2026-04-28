@@ -14,6 +14,7 @@ import { CalendarGrid } from "@/features/calendar/CalendarGrid";
 import { SemesterFormDialog } from "@/features/calendar/SemesterFormDialog";
 import { ScheduleEntryFormDialog } from "@/features/calendar/ScheduleEntryFormDialog";
 import { EventPanel } from "@/features/attendance/EventPanel";
+import { SubjectOverview } from "@/features/attendance/SubjectOverview";
 import { ImportStudentsModal } from "@/features/import/ImportStudentsModal";
 
 type SemesterResponse = components["schemas"]["SemesterResponse"];
@@ -39,8 +40,11 @@ export function CalendarPage() {
   const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(
     null,
   );
+  const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
+  const [overviewEntryId, setOverviewEntryId] = useState<number | null>(null);
 
   // Build lesson map: schedule_entry_id → lesson_id
   const lessonMap = new Map<number, number>();
@@ -169,6 +173,7 @@ export function CalendarPage() {
           onBlockClick={(lessonId, entry) => {
             setSelectedLessonId(lessonId);
             setSelectedSubjectId(entry.subject_id);
+            setSelectedEntryId(entry.id);
             setEventPanelOpen(true);
           }}
         />
@@ -196,7 +201,25 @@ export function CalendarPage() {
         semesterId={selectedSemesterId}
         open={eventPanelOpen}
         onOpenChange={setEventPanelOpen}
+        onMaximize={() => {
+          setEventPanelOpen(false);
+          setOverviewEntryId(selectedEntryId);
+          setOverviewOpen(true);
+        }}
       />
+
+      {overviewOpen && overviewEntryId !== null && selectedSubjectId !== null && selectedSemesterId !== null && (
+        <SubjectOverview
+          subjectId={selectedSubjectId}
+          entryId={overviewEntryId}
+          semesterId={selectedSemesterId}
+          onClose={() => setOverviewOpen(false)}
+          onMinimize={() => {
+            setOverviewOpen(false);
+            setEventPanelOpen(true);
+          }}
+        />
+      )}
 
       <ImportStudentsModal
         open={importModalOpen}
