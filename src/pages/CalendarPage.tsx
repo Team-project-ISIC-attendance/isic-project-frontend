@@ -8,6 +8,7 @@ import {
   fetchSubjects,
   updateWeekNote,
 } from "@/api/calendar";
+import { downloadAttendanceExport } from "@/api/attendance";
 import { CalendarToolbar } from "@/features/calendar/CalendarToolbar";
 import { WeekSidebar } from "@/features/calendar/WeekSidebar";
 import { CalendarGrid } from "@/features/calendar/CalendarGrid";
@@ -127,6 +128,14 @@ export function CalendarPage() {
     await loadSemesterData(semester.id, 1);
   }
 
+  // Export attendance for all subjects
+  async function handleExportAttendance() {
+    if (selectedSemesterId === null) return;
+    for (const subject of subjects) {
+      await downloadAttendanceExport(subject.id, selectedSemesterId, "csv");
+    }
+  }
+
   // Schedule entry created
   async function handleScheduleEntryCreated() {
     if (selectedSemesterId === null) return;
@@ -158,7 +167,7 @@ export function CalendarPage() {
         onCreateSemester={() => setSemesterFormOpen(true)}
         onImportStudents={() => setImportModalOpen(true)}
         onAddScheduleEntry={() => setScheduleEntryFormOpen(true)}
-        subjects={subjects}
+        onExportAttendance={handleExportAttendance}
       />
       <div className="flex flex-1 overflow-hidden">
         <WeekSidebar
