@@ -38,6 +38,23 @@ export interface paths {
         patch: operations["patch_attendance_attendance__attendance_id__patch"];
         trace?: never;
     };
+    "/attendance/{attendance_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move attendance record to a different lesson */
+        post: operations["move_attendance_record_attendance__attendance_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -463,6 +480,20 @@ export interface components {
             /** Recurrence */
             recurrence: string;
         };
+        /** AttendanceMoveRequest */
+        AttendanceMoveRequest: {
+            /** Target Lesson Id */
+            target_lesson_id: number;
+        };
+        /** AttendanceMoveResponse */
+        AttendanceMoveResponse: {
+            /** Attendance Id */
+            attendance_id: number;
+            /** Lesson Id */
+            lesson_id: number;
+            /** Status */
+            status: string;
+        };
         /** AttendanceResponse */
         AttendanceResponse: {
             lesson: components["schemas"]["AttendanceLessonInfo"];
@@ -497,6 +528,8 @@ export interface components {
             nepritomny: number;
             /** Nahrada */
             nahrada: number;
+            /** Ospravedlneny */
+            ospravedlneny: number;
         };
         /** AttendanceUpdateRequest */
         AttendanceUpdateRequest: {
@@ -1000,6 +1033,62 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AttendanceUpdateResponse"];
                 };
+            };
+            /** @description Attendance record not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_attendance_record_attendance__attendance_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attendance_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttendanceMoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceMoveResponse"];
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not your subject */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Attendance record not found */
             404: {

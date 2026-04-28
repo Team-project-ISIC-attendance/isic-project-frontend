@@ -22,6 +22,11 @@ const STATUS_CONFIG = {
     bg: "rgba(249, 236, 170, 0.5)",
     text: "#E9C400",
   },
+  ospravedlneny: {
+    label: "Ospravedlnený",
+    bg: "#dbeafe",
+    text: "#2563eb",
+  },
 } as const;
 
 type StatusKey = keyof typeof STATUS_CONFIG;
