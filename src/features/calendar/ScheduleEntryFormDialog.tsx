@@ -1,124 +1,167 @@
 import { useState } from "react";
-import type { components } from "@/api/schema";
+import { CalendarPlus, X, Clock, Minus, Plus, Calendar, ChevronDown } from "lucide-react";
 import { createScheduleEntry, createSubject } from "@/api/calendar";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
   SelectItem,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 
-type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
-type SubjectResponse = components["schemas"]["SubjectResponse"];
-
-const DAY_OPTIONS = [
-  { value: 0, label: "Po" },
-  { value: 1, label: "Ut" },
-  { value: 2, label: "St" },
-  { value: 3, label: "Št" },
-  { value: 4, label: "Pi" },
+const COLOR_PRESETS = [
+  "#079455",
+  "#1570EF",
+  "#444CE7",
+  "#6938EF",
+  "#BA24D5",
+  "#DD2590",
+  "#D92D20",
+  "#E04F16",
 ] as const;
 
-const TIME_OPTIONS = Array.from({ length: 23 }, (_, i) => {
-  const hour = 8 + Math.floor(i / 2);
-  const min = (i % 2) * 30;
-  return `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
-});
-
-const NEW_SUBJECT_SENTINEL = "__new__";
+const DAY_LABELS = [
+  { value: 0, label: "M" },
+  { value: 1, label: "T" },
+  { value: 2, label: "W" },
+  { value: 3, label: "T" },
+  { value: 4, label: "F" },
+  { value: 5, label: "S" },
+  { value: 6, label: "S" },
+] as const;
 
 interface ScheduleEntryFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   semesterId: number;
-  subjects: SubjectResponse[];
-  onCreated: (entry: ScheduleEntryResponse) => void;
-  onSubjectCreated: (subject: SubjectResponse) => void;
+  totalWeeks: number;
+  onCreated: () => void;
 }
 
 export function ScheduleEntryFormDialog({
   open,
   onOpenChange,
   semesterId,
-  subjects,
+  totalWeeks,
   onCreated,
-  onSubjectCreated,
 }: ScheduleEntryFormDialogProps) {
-  const [subjectId, setSubjectId] = useState<number | null>(null);
-  const [showNewSubject, setShowNewSubject] = useState(false);
-  const [newSubjectName, setNewSubjectName] = useState("");
-  const [newSubjectCode, setNewSubjectCode] = useState("");
-  const [newSubjectColor, setNewSubjectColor] = useState("#4CAF50");
-  const [dayOfWeek, setDayOfWeek] = useState<number>(0);
+  const [activeTab, setActiveTab] = useState<"recurring" | "one-time">("recurring");
+  const [name, setName] = useState("");
   const [startTime, setStartTime] = useState("08:00");
-  const [endTime, setEndTime] = useState("09:00");
-  const [room, setRoom] = useState("");
+  const [endTime, setEndTime] = useState("10:00");
   const [lessonType, setLessonType] = useState("prednaska");
+  const [room, setRoom] = useState("");
+  const [color, setColor] = useState<string>(COLOR_PRESETS[0]);
+  const [selectedDays, setSelectedDays] = useState<Set<number>>(new Set());
+  const [recurrenceInterval, setRecurrenceInterval] = useState(totalWeeks);
+  const [endOption, setEndOption] = useState<"semester" | "date">("semester");
+  const [endDate, setEndDate] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   function resetForm() {
-    setSubjectId(null);
-    setShowNewSubject(false);
-    setNewSubjectName("");
-    setNewSubjectCode("");
-    setNewSubjectColor("#4CAF50");
-    setDayOfWeek(0);
+    setActiveTab("recurring");
+    setName("");
     setStartTime("08:00");
-    setEndTime("09:00");
-    setRoom("");
+    setEndTime("10:00");
     setLessonType("prednaska");
+    setRoom("");
+    setColor(COLOR_PRESETS[0]);
+    setSelectedDays(new Set());
+    setRecurrenceInterval(totalWeeks);
+    setEndOption("semester");
+    setEndDate("");
     setError("");
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) resetForm();
+    onOpenChange(nextOpen);
+  }
+
+  function toggleDay(day: number) {
+    setSelectedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(day)) {
+        next.delete(day);
+      } else {
+        next.add(day);
+      }
+      return next;
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+
+    // Validation
+    if (!name.trim()) {
+      setError("Názov je povinný");
+      return;
+    }
+    if (startTime >= endTime) {
+      setError("Začiatok musí byť pred koncom");
+      return;
+    }
+    if (activeTab === "recurring" && selectedDays.size === 0) {
+      setError("Vyberte aspoň jeden deň");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
-      let resolvedSubjectId = subjectId;
-
-      if (showNewSubject) {
-        const newSubject = await createSubject({
-          name: newSubjectName,
-          code: newSubjectCode,
-          color: newSubjectColor,
-        });
-        resolvedSubjectId = newSubject.id;
-        onSubjectCreated(newSubject);
-      }
-
-      if (resolvedSubjectId === null) {
-        setError("Vyberte predmet");
-        setSubmitting(false);
-        return;
-      }
-
-      const entry = await createScheduleEntry(semesterId, {
-        subject_id: resolvedSubjectId,
-        day_of_week: dayOfWeek,
-        start_time: startTime,
-        end_time: endTime,
-        room: room || null,
-        lesson_type: lessonType,
+      // Auto-create subject from name + color
+      const autoCode = name.trim().slice(0, 3).toUpperCase() || name.trim();
+      const subject = await createSubject({
+        name: name.trim(),
+        code: autoCode,
+        color,
       });
+
+      const isOneTime = activeTab === "one-time";
+      const computedEndDate = endOption === "date" && endDate ? endDate : null;
+
+      if (isOneTime) {
+        // One-time: create a single entry for day 0 (Monday by default)
+        await createScheduleEntry(semesterId, {
+          subject_id: subject.id,
+          day_of_week: 0,
+          start_time: startTime,
+          end_time: endTime,
+          room: room || null,
+          lesson_type: lessonType,
+          is_one_time: true,
+          recurrence_interval: 1,
+          end_date: computedEndDate,
+        });
+      } else {
+        // Recurring: create one entry per selected day
+        const days = Array.from(selectedDays).sort();
+        for (const day of days) {
+          await createScheduleEntry(semesterId, {
+            subject_id: subject.id,
+            day_of_week: day,
+            start_time: startTime,
+            end_time: endTime,
+            room: room || null,
+            lesson_type: lessonType,
+            is_one_time: false,
+            recurrence_interval: recurrenceInterval,
+            end_date: computedEndDate,
+          });
+        }
+      }
 
       resetForm();
       onOpenChange(false);
-      onCreated(entry);
+      onCreated();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Chyba pri vytváraní";
       setError(message);
@@ -127,193 +170,301 @@ export function ScheduleEntryFormDialog({
     }
   }
 
-  function handleSubjectChange(val: string | null) {
-    if (val === NEW_SUBJECT_SENTINEL) {
-      setShowNewSubject(true);
-      setSubjectId(null);
-    } else if (val !== null) {
-      setShowNewSubject(false);
-      setSubjectId(Number(val));
-    }
-  }
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Nová rozvrhová jednotka</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {/* Subject */}
-          <div className="flex flex-col gap-2">
-            <Label>Predmet</Label>
-            <Select
-              value={
-                showNewSubject
-                  ? NEW_SUBJECT_SENTINEL
-                  : subjectId !== null
-                    ? String(subjectId)
-                    : undefined
-              }
-              onValueChange={handleSubjectChange}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Vyberte predmet">
-                  {showNewSubject
-                    ? "Nový predmet..."
-                    : subjectId !== null
-                      ? (() => {
-                          const s = subjects.find((sub) => sub.id === subjectId);
-                          return s ? `${s.name} (${s.code})` : "Vyberte predmet";
-                        })()
-                      : "Vyberte predmet"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {subjects.map((s) => (
-                  <SelectItem key={s.id} value={String(s.id)}>
-                    {s.name} ({s.code})
-                  </SelectItem>
-                ))}
-                <SelectSeparator />
-                <SelectItem value={NEW_SUBJECT_SENTINEL}>
-                  Nový predmet...
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="w-[640px] max-w-[calc(100%-2rem)] p-0 gap-0"
+      >
+        {/* Header */}
+        <div className="pt-6 px-6 pb-5">
+          <button
+            type="button"
+            onClick={() => handleOpenChange(false)}
+            className="absolute right-4 top-4 rounded-lg p-2.5 text-[#737373] hover:bg-[#f5f5f5]"
+          >
+            <X size={24} />
+          </button>
 
-          {/* New subject inline form */}
-          {showNewSubject && (
-            <div className="flex flex-col gap-3 rounded-md border border-border-custom p-3">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="new-subject-name">Názov predmetu</Label>
-                <Input
-                  id="new-subject-name"
-                  value={newSubjectName}
-                  onChange={(e) => setNewSubjectName(e.target.value)}
-                  placeholder="napr. Algoritmy"
-                  required
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="new-subject-code">Kód</Label>
-                <Input
-                  id="new-subject-code"
-                  value={newSubjectCode}
-                  onChange={(e) => setNewSubjectCode(e.target.value)}
-                  placeholder="napr. ALG"
-                  required
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="new-subject-color">Farba</Label>
-                <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-[10px] border border-[#e5e5e5] shadow-[0px_1px_1px_rgba(0,0,0,0.05)]">
+              <CalendarPlus size={22} className="text-[#171717]" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <h2 className="text-lg font-semibold text-[#171717] leading-7">
+                Pridať rozvrhovú jednotku
+              </h2>
+              <p className="text-sm font-normal text-[#525252] leading-5">
+                Vyplňte všetky polia a následne môžete vytvoriť rozvrhovú jednotku.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="flex flex-col">
+          <div className="px-6 flex flex-col gap-4">
+            {/* Tabs */}
+            <div className="flex rounded-lg border border-[#d5d7da] bg-[#fafafa] p-0.5">
+              <button
+                type="button"
+                onClick={() => setActiveTab("recurring")}
+                className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
+                  activeTab === "recurring"
+                    ? "bg-white border border-[#d5d7da] text-[#171717] shadow-sm"
+                    : "border border-transparent text-[#737373]"
+                }`}
+              >
+                Opakujúca sa
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("one-time")}
+                className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
+                  activeTab === "one-time"
+                    ? "bg-white border border-[#d5d7da] text-[#171717] shadow-sm"
+                    : "border border-transparent text-[#737373]"
+                }`}
+              >
+                Jednorazová
+              </button>
+            </div>
+
+            {/* Názov */}
+            <div className="flex flex-col gap-2">
+              <Label className="text-sm font-medium text-[#414651]">Názov</Label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="napr. Udajove struktury"
+                className="h-10 w-full rounded-lg border border-[#d5d7da] bg-white px-3 py-2 text-sm shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] outline-none placeholder:text-[#a3a3a3] focus:border-[#1d4ed8] focus:ring-1 focus:ring-[#1d4ed8]"
+              />
+            </div>
+
+            {/* Začiatok / Koniec */}
+            <div className="flex gap-4">
+              <div className="flex flex-1 flex-col gap-2">
+                <Label className="text-sm font-medium text-[#414651]">Začiatok</Label>
+                <div className="flex items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
                   <input
-                    id="new-subject-color"
-                    type="color"
-                    value={newSubjectColor}
-                    onChange={(e) => setNewSubjectColor(e.target.value)}
-                    className="h-8 w-12 cursor-pointer rounded border border-border-custom"
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    className="h-10 flex-1 appearance-none bg-transparent px-3 py-2 text-sm outline-none [&::-webkit-calendar-picker-indicator]:hidden"
                   />
-                  <span className="text-sm text-text-secondary">
-                    {newSubjectColor}
-                  </span>
+                  <div className="px-3">
+                    <Clock size={16} className="text-[#737373]" />
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-1 flex-col gap-2">
+                <Label className="text-sm font-medium text-[#414651]">Koniec</Label>
+                <div className="flex items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
+                  <input
+                    type="time"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                    className="h-10 flex-1 appearance-none bg-transparent px-3 py-2 text-sm outline-none [&::-webkit-calendar-picker-indicator]:hidden"
+                  />
+                  <div className="px-3">
+                    <Clock size={16} className="text-[#737373]" />
+                  </div>
                 </div>
               </div>
             </div>
-          )}
 
-          {/* Day */}
-          <div className="flex flex-col gap-2">
-            <Label>Deň</Label>
-            <Select value={String(dayOfWeek)} onValueChange={(val) => { if (val !== null) setDayOfWeek(Number(val)); }}>
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {DAY_OPTIONS.find((d) => d.value === dayOfWeek)?.label ?? "Po"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {DAY_OPTIONS.map((d) => (
-                  <SelectItem key={d.value} value={String(d.value)}>
-                    {d.label}
-                  </SelectItem>
+            {/* Typ / Miestnosť */}
+            <div className="flex gap-4">
+              <div className="flex w-[288px] flex-none flex-col gap-2">
+                <Label className="text-sm font-medium text-[#414651]">Typ</Label>
+                <Select value={lessonType} onValueChange={(val) => { if (val !== null) setLessonType(val); }}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {{ prednaska: "Prednáška", cvicenie: "Cvičenie", laboratorium: "Laboratórium" }[lessonType] ?? lessonType}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="prednaska">Prednáška</SelectItem>
+                    <SelectItem value="cvicenie">Cvičenie</SelectItem>
+                    <SelectItem value="laboratorium">Laboratórium</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-1 flex-col gap-2">
+                <Label className="text-sm font-medium text-[#414651]">Miestnosť</Label>
+                <input
+                  value={room}
+                  onChange={(e) => setRoom(e.target.value)}
+                  placeholder="napr. AB150"
+                  className="h-10 w-full rounded-lg border border-[#d5d7da] bg-white px-3 py-2 text-sm shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] outline-none placeholder:text-[#a3a3a3] focus:border-[#1d4ed8] focus:ring-1 focus:ring-[#1d4ed8]"
+                />
+              </div>
+            </div>
+
+            {/* Farba */}
+            <div className="flex flex-col gap-2">
+              <Label className="text-sm font-medium text-[#414651]">Farba</Label>
+              <div className="flex items-center gap-2 rounded-lg border border-[#d5d7da] px-3 py-2.5">
+                {COLOR_PRESETS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setColor(c)}
+                    className={`flex h-[24px] w-[24px] items-center justify-center rounded-full ${
+                      color === c ? "ring-[1.8px] ring-[#181d27] ring-offset-1" : ""
+                    }`}
+                  >
+                    <div
+                      className="h-[19.2px] w-[19.2px] rounded-full"
+                      style={{
+                        backgroundColor: c,
+                        boxShadow: "inset 0 0 0 1.2px rgba(0,0,0,0.1)",
+                      }}
+                    />
+                  </button>
                 ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Time range */}
-          <div className="flex gap-3">
-            <div className="flex flex-1 flex-col gap-2">
-              <Label>Začiatok</Label>
-              <Select value={startTime} onValueChange={(val) => { if (val !== null) setStartTime(val); }}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>{startTime}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {TIME_OPTIONS.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              </div>
             </div>
-            <div className="flex flex-1 flex-col gap-2">
-              <Label>Koniec</Label>
-              <Select value={endTime} onValueChange={(val) => { if (val !== null) setEndTime(val); }}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>{endTime}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {TIME_OPTIONS.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+
+            {/* Recurrence section (recurring tab only) */}
+            {activeTab === "recurring" && (
+              <>
+                <div className="h-px bg-[#e5e5e5]" />
+
+                {/* Opakovať každých */}
+                <div className="flex items-end gap-3">
+                  <div className="flex flex-col gap-2">
+                    <Label className="text-sm font-medium text-[#414651]">Opakovať každých:</Label>
+                    <div className="flex w-[144px] items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
+                      <button
+                        type="button"
+                        onClick={() => setRecurrenceInterval(Math.max(1, recurrenceInterval - 1))}
+                        className="rounded-l-lg border-r border-[#d5d7da] px-3 py-2.5"
+                      >
+                        <Minus size={20} className="text-[#171717]" />
+                      </button>
+                      <div className="flex-1 border-r border-[#d5d7da] py-2.5 text-center text-base text-[#181d27]">
+                        {recurrenceInterval}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setRecurrenceInterval(Math.min(52, recurrenceInterval + 1))}
+                        className="rounded-r-lg px-3 py-2.5"
+                      >
+                        <Plus size={20} className="text-[#171717]" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-1 flex-col gap-2">
+                    <div className="flex items-center rounded-lg border border-[#d5d7da] h-[44px] px-3 shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
+                      <span className="flex-1 text-sm text-[#171717]">týždňov</span>
+                      <ChevronDown size={16} className="text-[#737373]" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Opakovanie (day toggles) */}
+                <div className="flex flex-col gap-2">
+                  <Label className="text-sm font-medium text-[#414651]">Opakovanie</Label>
+                  <div className="flex gap-2">
+                    {DAY_LABELS.map((d) => (
+                      <button
+                        key={d.value}
+                        type="button"
+                        onClick={() => toggleDay(d.value)}
+                        className={`flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full text-sm font-medium transition-colors ${
+                          selectedDays.has(d.value)
+                            ? "bg-[#1d4ed8] text-white shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)]"
+                            : "border border-[#d5d7da] bg-white text-[#717680]"
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Končí */}
+                <div className="flex flex-col gap-3">
+                  <Label className="text-sm font-medium text-[#414651]">Končí</Label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <div
+                      className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+                        endOption === "semester" ? "border-[#1d4ed8]" : "border-[#d5d7da]"
+                      }`}
+                    >
+                      {endOption === "semester" && (
+                        <div className="h-2.5 w-2.5 rounded-full bg-[#1d4ed8]" />
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEndOption("semester")}
+                      className="text-sm text-[#171717]"
+                    >
+                      Koniec semestra
+                    </button>
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <div
+                        className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+                          endOption === "date" ? "border-[#1d4ed8]" : "border-[#d5d7da]"
+                        }`}
+                      >
+                        {endOption === "date" && (
+                          <div className="h-2.5 w-2.5 rounded-full bg-[#1d4ed8]" />
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEndOption("date")}
+                        className="text-sm text-[#171717]"
+                      >
+                        Dátum
+                      </button>
+                    </label>
+                    {endOption === "date" && (
+                      <div className="flex flex-1 items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
+                        <input
+                          type="date"
+                          value={endDate}
+                          onChange={(e) => setEndDate(e.target.value)}
+                          className="h-10 flex-1 appearance-none bg-transparent px-3 py-2 text-sm outline-none [&::-webkit-calendar-picker-indicator]:hidden"
+                        />
+                        <div className="px-3">
+                          <Calendar size={16} className="text-[#737373]" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Error */}
+            {error && (
+              <p className="text-sm text-danger">{error}</p>
+            )}
           </div>
 
-          {/* Room */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="entry-room">Miestnosť</Label>
-            <Input
-              id="entry-room"
-              value={room}
-              onChange={(e) => setRoom(e.target.value)}
-              placeholder="napr. AB150"
-            />
-          </div>
-
-          {/* Lesson type */}
-          <div className="flex flex-col gap-2">
-            <Label>Typ</Label>
-            <Select value={lessonType} onValueChange={(val) => { if (val !== null) setLessonType(val); }}>
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {{ prednaska: "Prednáška", cvicenie: "Cvičenie", laboratorium: "Laboratórium" }[lessonType] ?? lessonType}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="prednaska">Prednáška</SelectItem>
-                <SelectItem value="cvicenie">Cvičenie</SelectItem>
-                <SelectItem value="laboratorium">Laboratórium</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {error && (
-            <p className="text-sm text-danger">{error}</p>
-          )}
-
-          <DialogFooter>
-            <Button type="submit" disabled={submitting}>
+          {/* Footer */}
+          <div className="flex gap-3 px-6 pb-6 pt-8">
+            <button
+              type="button"
+              onClick={() => handleOpenChange(false)}
+              className="flex-1 rounded-lg border border-[#d4d4d4] bg-white py-2.5 text-base font-semibold text-[#404040] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] hover:bg-[#fafafa]"
+            >
+              Zrušiť
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 rounded-lg bg-[#1d4ed8] py-2.5 text-base font-semibold text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] hover:bg-[#1a44c2] disabled:opacity-50"
+            >
               {submitting ? "Vytváranie..." : "Vytvoriť"}
-            </Button>
-          </DialogFooter>
+            </button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

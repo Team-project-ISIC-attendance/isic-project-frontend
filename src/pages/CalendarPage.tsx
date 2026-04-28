@@ -126,17 +126,14 @@ export function CalendarPage() {
   // Schedule entry created
   async function handleScheduleEntryCreated() {
     if (selectedSemesterId === null) return;
-    const [scheduleData, lessonsData] = await Promise.all([
+    const [scheduleData, lessonsData, subjectsData] = await Promise.all([
       fetchSchedule(selectedSemesterId),
       fetchWeekLessons(selectedSemesterId, activeWeek),
+      fetchSubjects(),
     ]);
     setSchedule(scheduleData);
     setWeekLessons(lessonsData);
-  }
-
-  // Subject created
-  function handleSubjectCreated(subject: SubjectResponse) {
-    setSubjects((prev) => [...prev, subject]);
+    setSubjects(subjectsData);
   }
 
   if (loading) {
@@ -188,9 +185,8 @@ export function CalendarPage() {
           open={scheduleEntryFormOpen}
           onOpenChange={setScheduleEntryFormOpen}
           semesterId={selectedSemesterId}
-          subjects={subjects}
+          totalWeeks={semesters.find((s) => s.id === selectedSemesterId)?.total_weeks ?? 13}
           onCreated={handleScheduleEntryCreated}
-          onSubjectCreated={handleSubjectCreated}
         />
       )}
 
