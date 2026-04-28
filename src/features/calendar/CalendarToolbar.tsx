@@ -1,4 +1,4 @@
-import { Menu, Plus, Upload } from "lucide-react";
+import { FileDown, Menu, Plus, Settings, Upload } from "lucide-react";
 import type { components } from "@/api/schema";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,10 +8,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ExportButton } from "@/features/export/ExportButton";
 
 type SemesterResponse = components["schemas"]["SemesterResponse"];
-type SubjectResponse = components["schemas"]["SubjectResponse"];
 
 interface CalendarToolbarProps {
   semesters: SemesterResponse[];
@@ -21,7 +19,7 @@ interface CalendarToolbarProps {
   onCreateSemester: () => void;
   onImportStudents: () => void;
   onAddScheduleEntry: () => void;
-  subjects: SubjectResponse[];
+  onExportAttendance: () => void;
 }
 
 export function CalendarToolbar({
@@ -32,7 +30,7 @@ export function CalendarToolbar({
   onCreateSemester,
   onImportStudents,
   onAddScheduleEntry,
-  subjects,
+  onExportAttendance,
 }: CalendarToolbarProps) {
   const selectedSemester = semesters.find((s) => s.id === selectedSemesterId);
 
@@ -81,13 +79,20 @@ export function CalendarToolbar({
           Import študentov
         </Button>
 
-        {selectedSemesterId !== null && subjects.length > 0 && (
-          <ExportButton subjects={subjects} semesterId={selectedSemesterId} />
+        {selectedSemesterId !== null && (
+          <Button variant="outline" size="sm" onClick={onExportAttendance}>
+            <FileDown className="mr-1 h-4 w-4" />
+            Export dochádzky
+          </Button>
         )}
 
         <Button size="sm" onClick={onAddScheduleEntry}>
           <Plus className="mr-1 h-4 w-4" />
           Pridať rozvrh. jednotka
+        </Button>
+
+        <Button variant="outline" size="icon" className="h-8 w-8">
+          <Settings className="h-4 w-4" />
         </Button>
       </div>
     </div>
