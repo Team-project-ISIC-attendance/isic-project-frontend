@@ -1,4 +1,4 @@
-import { FileDown, Menu, Plus, Settings, Upload } from "lucide-react";
+import { FileDown, Menu, Plus, Upload } from "lucide-react";
 import type { components } from "@/api/schema";
 import { Button } from "@/components/ui/button";
 import {
@@ -89,10 +89,6 @@ export function CalendarToolbar({
         <Button size="sm" onClick={onAddScheduleEntry}>
           <Plus className="mr-1 h-4 w-4" />
           Pridať rozvrh. jednotka
-        </Button>
-
-        <Button variant="outline" size="icon" className="h-8 w-8">
-          <Settings className="h-4 w-4" />
         </Button>
       </div>
     </div>
