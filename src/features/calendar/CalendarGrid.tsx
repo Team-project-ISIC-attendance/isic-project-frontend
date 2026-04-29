@@ -3,9 +3,12 @@ import type { components } from "@/api/schema";
 type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
 
 const HOUR_HEIGHT = 60;
-const START_HOUR = 8;
-const END_HOUR = 19;
-const HOURS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i);
+const START_HOUR = 0;
+const END_HOUR = 23;
+const HOURS = Array.from(
+  { length: END_HOUR - START_HOUR + 1 },
+  (_, i) => START_HOUR + i,
+);
 const DAYS = ["Po", "Ut", "St", "Št", "Pi"] as const;
 
 interface CalendarGridProps {
@@ -38,7 +41,9 @@ function layoutOverlaps(entries: ScheduleEntryResponse[]): LayoutEntry[] {
   const sorted = [...entries].sort((a, b) => {
     const aStart = parseTime(a.start_time);
     const bStart = parseTime(b.start_time);
-    return aStart.hour * 60 + aStart.minute - (bStart.hour * 60 + bStart.minute);
+    return (
+      aStart.hour * 60 + aStart.minute - (bStart.hour * 60 + bStart.minute)
+    );
   });
 
   const columns: ScheduleEntryResponse[][] = [];
@@ -96,10 +101,10 @@ export function CalendarGrid({
     layoutByDay.set(day, layoutOverlaps(entries));
   }
 
-  const totalHeight = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
+  const totalHeight = (END_HOUR - START_HOUR + 1) * HOUR_HEIGHT;
 
   return (
-    <div className="flex flex-1 flex-col overflow-auto">
+    <div className="flex flex-1 flex-col overflow-hidden">
       {/* Day headers */}
       <div className="flex shrink-0 border-b border-border-custom">
         <div className="w-16 shrink-0" />
@@ -121,7 +126,9 @@ export function CalendarGrid({
             <div
               key={hour}
               className="absolute right-2 font-body text-xs text-text-secondary"
-              style={{ top: (hour - START_HOUR) * HOUR_HEIGHT - 8 }}
+              style={{
+                top: Math.max(0, (hour - START_HOUR) * HOUR_HEIGHT - 8),
+              }}
             >
               {String(hour).padStart(2, "0")}:00
             </div>
@@ -194,7 +201,11 @@ export function CalendarGrid({
                         )}
                       </div>
                       <div className="font-body text-xs text-text-secondary">
-                        {{ prednaska: "Prednáška", cvicenie: "Cvičenie", laboratorium: "Laboratórium" }[entry.lesson_type] ?? entry.lesson_type}
+                        {{
+                          prednaska: "Prednáška",
+                          cvicenie: "Cvičenie",
+                          laboratorium: "Laboratórium",
+                        }[entry.lesson_type] ?? entry.lesson_type}
                       </div>
                     </div>
                   );

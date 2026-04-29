@@ -12,11 +12,11 @@ import { downloadAttendanceExport } from "@/api/attendance";
 import { CalendarToolbar } from "@/features/calendar/CalendarToolbar";
 import { WeekSidebar } from "@/features/calendar/WeekSidebar";
 import { CalendarGrid } from "@/features/calendar/CalendarGrid";
-import { SemesterFormDialog } from "@/features/calendar/SemesterFormDialog";
 import { ScheduleEntryFormDialog } from "@/features/calendar/ScheduleEntryFormDialog";
 import { EventPanel } from "@/features/attendance/EventPanel";
 import { SubjectOverview } from "@/features/attendance/SubjectOverview";
 import { ImportStudentsModal } from "@/features/import/ImportStudentsModal";
+import { SemesterFormDialog } from "../features/calendar/SemesterFormDialog";
 
 type SemesterResponse = components["schemas"]["SemesterResponse"];
 type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
