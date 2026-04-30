@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import type { components } from "@/api/schema";
 
 type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
@@ -9,7 +10,13 @@ const HOURS = Array.from(
   { length: END_HOUR - START_HOUR + 1 },
   (_, i) => START_HOUR + i,
 );
-const DAYS = ["Po", "Ut", "St", "Št", "Pi"] as const;
+const DAYS = [
+  { value: 1, label: "Po" },
+  { value: 2, label: "Ut" },
+  { value: 3, label: "St" },
+  { value: 4, label: "Št" },
+  { value: 5, label: "Pi" },
+] as const;
 
 interface CalendarGridProps {
   scheduleEntries: ScheduleEntryResponse[];
@@ -89,6 +96,7 @@ export function CalendarGrid({
   lessonMap,
   onBlockClick,
 }: CalendarGridProps) {
+  const gridScrollRef = useRef<HTMLDivElement | null>(null);
   const entriesByDay = new Map<number, ScheduleEntryResponse[]>();
   for (const entry of scheduleEntries) {
     const day = entry.day_of_week;
@@ -103,6 +111,20 @@ export function CalendarGrid({
 
   const totalHeight = (END_HOUR - START_HOUR + 1) * HOUR_HEIGHT;
 
+  useLayoutEffect(() => {
+    if (gridScrollRef.current === null) return;
+    const targetScrollTop = (8 - START_HOUR) * HOUR_HEIGHT;
+    const scrollToWorkday = () => {
+      if (gridScrollRef.current !== null) {
+        gridScrollRef.current.scrollTop = targetScrollTop;
+      }
+    };
+
+    scrollToWorkday();
+    const frame = window.requestAnimationFrame(scrollToWorkday);
+    return () => window.cancelAnimationFrame(frame);
+  }, [scheduleEntries.length]);
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Day headers */}
@@ -110,16 +132,16 @@ export function CalendarGrid({
         <div className="w-16 shrink-0" />
         {DAYS.map((day) => (
           <div
-            key={day}
+            key={day.value}
             className="flex-1 border-l border-border-custom py-2 text-center font-heading text-sm font-medium text-text-secondary"
           >
-            {day}
+            {day.label}
           </div>
         ))}
       </div>
 
       {/* Grid body */}
-      <div className="flex flex-1 overflow-auto">
+      <div ref={gridScrollRef} className="flex flex-1 overflow-auto">
         {/* Time labels */}
         <div className="relative w-16 shrink-0" style={{ height: totalHeight }}>
           {HOURS.map((hour) => (
@@ -147,12 +169,12 @@ export function CalendarGrid({
           ))}
 
           {/* Day column separators + blocks */}
-          {DAYS.map((_, dayIndex) => {
-            const dayLayout = layoutByDay.get(dayIndex) ?? [];
+          {DAYS.map((day) => {
+            const dayLayout = layoutByDay.get(day.value) ?? [];
 
             return (
               <div
-                key={dayIndex}
+                key={day.value}
                 className="relative flex-1 border-l border-border-custom"
               >
                 {dayLayout.map(({ entry, column, totalColumns }) => {

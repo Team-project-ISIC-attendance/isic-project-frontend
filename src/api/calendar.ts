@@ -5,6 +5,7 @@ type SemesterResponse = components["schemas"]["SemesterResponse"];
 type SemesterCreate = components["schemas"]["SemesterCreate"];
 type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
 type ScheduleEntryCreate = components["schemas"]["ScheduleEntryCreate"];
+type ScheduleEntryUpdate = components["schemas"]["ScheduleEntryUpdate"];
 type WeekResponse = components["schemas"]["WeekResponse"];
 type WeekLessonResponse = components["schemas"]["WeekLessonResponse"];
 type SubjectResponse = components["schemas"]["SubjectResponse"];
@@ -37,6 +38,20 @@ export function createScheduleEntry(
     `/semesters/${semesterId}/schedule`,
     {
       method: "POST",
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+export function updateScheduleEntry(
+  semesterId: number,
+  entryId: number,
+  data: ScheduleEntryUpdate,
+): Promise<ScheduleEntryResponse> {
+  return apiFetch<ScheduleEntryResponse>(
+    `/semesters/${semesterId}/schedule/${entryId}`,
+    {
+      method: "PUT",
       body: JSON.stringify(data),
     },
   );

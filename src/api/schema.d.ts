@@ -425,7 +425,8 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /** Update a schedule entry */
+        put: operations["update_schedule_semesters__semester_id__schedule__entry_id__put"];
         post?: never;
         /** Delete a schedule entry */
         delete: operations["delete_schedule_semesters__semester_id__schedule__entry_id__delete"];
@@ -880,6 +881,35 @@ export interface components {
             recurrence_interval: number;
             /** End Date */
             end_date: string | null;
+        };
+        /** ScheduleEntryUpdate */
+        ScheduleEntryUpdate: {
+            /** Subject Name */
+            subject_name?: string | null;
+            /** Subject Color */
+            subject_color?: string | null;
+            /** Day Of Week */
+            day_of_week: number;
+            /** Start Time */
+            start_time: string;
+            /** End Time */
+            end_time: string;
+            /** Room */
+            room?: string | null;
+            /** Lesson Type */
+            lesson_type: string;
+            /**
+             * Is One Time
+             * @default false
+             */
+            is_one_time: boolean;
+            /**
+             * Recurrence Interval
+             * @default 1
+             */
+            recurrence_interval: number;
+            /** End Date */
+            end_date?: string | null;
         };
         /** SemesterCreate */
         SemesterCreate: {
@@ -2114,6 +2144,63 @@ export interface operations {
             };
             /** @description Semester or subject not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_schedule_semesters__semester_id__schedule__entry_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                semester_id: number;
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleEntryUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleEntryResponse"];
+                };
+            };
+            /** @description Invalid schedule data */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Semester or schedule entry not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Subject update conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

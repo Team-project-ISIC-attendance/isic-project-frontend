@@ -71,13 +71,13 @@ export function StudentCard({
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 className="cursor-pointer text-sm text-[#404040]"
-                onSelect={() => onMove(student)}
+                onClick={() => onMove(student)}
               >
                 Presunúť
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="cursor-pointer text-sm text-[#dc2626]"
-                onSelect={() => onRemove(student)}
+                onClick={() => onRemove(student)}
               >
                 Odstrániť
               </DropdownMenuItem>

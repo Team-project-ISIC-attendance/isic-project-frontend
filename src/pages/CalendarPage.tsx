@@ -8,13 +8,13 @@ import {
   fetchSubjects,
   updateWeekNote,
 } from "@/api/calendar";
-import { downloadAttendanceExport } from "@/api/attendance";
 import { CalendarToolbar } from "@/features/calendar/CalendarToolbar";
 import { WeekSidebar } from "@/features/calendar/WeekSidebar";
 import { CalendarGrid } from "@/features/calendar/CalendarGrid";
 import { ScheduleEntryFormDialog } from "@/features/calendar/ScheduleEntryFormDialog";
 import { EventPanel } from "@/features/attendance/EventPanel";
 import { SubjectOverview } from "@/features/attendance/SubjectOverview";
+import { AttendanceExportDialog } from "@/features/attendance/AttendanceExportDialog";
 import { ImportStudentsModal } from "@/features/import/ImportStudentsModal";
 import { SemesterFormDialog } from "../features/calendar/SemesterFormDialog";
 
@@ -44,8 +44,13 @@ export function CalendarPage() {
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [overviewEntryId, setOverviewEntryId] = useState<number | null>(null);
+  const [selectedEntry, setSelectedEntry] =
+    useState<ScheduleEntryResponse | null>(null);
+  const [editingEntry, setEditingEntry] =
+    useState<ScheduleEntryResponse | null>(null);
 
   // Build lesson map: schedule_entry_id → lesson_id
   const lessonMap = new Map<number, number>();
@@ -128,14 +133,6 @@ export function CalendarPage() {
     await loadSemesterData(semester.id, 1);
   }
 
-  // Export attendance for all subjects
-  async function handleExportAttendance() {
-    if (selectedSemesterId === null) return;
-    for (const subject of subjects) {
-      await downloadAttendanceExport(subject.id, selectedSemesterId, "csv");
-    }
-  }
-
   // Schedule entry created
   async function handleScheduleEntryCreated() {
     if (selectedSemesterId === null) return;
@@ -147,6 +144,26 @@ export function CalendarPage() {
     setSchedule(scheduleData);
     setWeekLessons(lessonsData);
     setSubjects(subjectsData);
+  }
+
+  async function handleScheduleEntrySaved() {
+    await handleScheduleEntryCreated();
+    setEditingEntry(null);
+  }
+
+  function handleEditEntry(entry: ScheduleEntryResponse | null) {
+    if (entry === null) return;
+    setEventPanelOpen(false);
+    setOverviewOpen(false);
+    setEditingEntry(entry);
+    setScheduleEntryFormOpen(true);
+  }
+
+  function handleScheduleDialogOpenChange(open: boolean) {
+    setScheduleEntryFormOpen(open);
+    if (!open) {
+      setEditingEntry(null);
+    }
   }
 
   if (loading) {
@@ -166,8 +183,11 @@ export function CalendarPage() {
         activeWeekDisplay={activeWeekDisplay}
         onCreateSemester={() => setSemesterFormOpen(true)}
         onImportStudents={() => setImportModalOpen(true)}
-        onAddScheduleEntry={() => setScheduleEntryFormOpen(true)}
-        onExportAttendance={handleExportAttendance}
+        onAddScheduleEntry={() => {
+          setEditingEntry(null);
+          setScheduleEntryFormOpen(true);
+        }}
+        onExportAttendance={() => setExportModalOpen(true)}
       />
       <div className="flex flex-1 overflow-hidden">
         <WeekSidebar
@@ -183,6 +203,7 @@ export function CalendarPage() {
             setSelectedLessonId(lessonId);
             setSelectedSubjectId(entry.subject_id);
             setSelectedEntryId(entry.id);
+            setSelectedEntry(entry);
             setEventPanelOpen(true);
           }}
         />
@@ -194,13 +215,16 @@ export function CalendarPage() {
         onCreated={handleSemesterCreated}
       />
 
-      {selectedSemesterId !== null && (
+      {selectedSemesterId !== null && scheduleEntryFormOpen && (
         <ScheduleEntryFormDialog
+          key={editingEntry ? `edit-${editingEntry.id}` : "create"}
           open={scheduleEntryFormOpen}
-          onOpenChange={setScheduleEntryFormOpen}
+          onOpenChange={handleScheduleDialogOpenChange}
           semesterId={selectedSemesterId}
-          totalWeeks={semesters.find((s) => s.id === selectedSemesterId)?.total_weeks ?? 13}
+          mode={editingEntry ? "edit" : "create"}
+          entry={editingEntry}
           onCreated={handleScheduleEntryCreated}
+          onUpdated={handleScheduleEntrySaved}
         />
       )}
 
@@ -215,6 +239,7 @@ export function CalendarPage() {
           setOverviewEntryId(selectedEntryId);
           setOverviewOpen(true);
         }}
+        onEdit={() => handleEditEntry(selectedEntry)}
       />
 
       {overviewOpen && overviewEntryId !== null && selectedSubjectId !== null && selectedSemesterId !== null && (
@@ -227,6 +252,17 @@ export function CalendarPage() {
             setOverviewOpen(false);
             setEventPanelOpen(true);
           }}
+          onEdit={() => handleEditEntry(selectedEntry)}
+        />
+      )}
+
+      {exportModalOpen && (
+        <AttendanceExportDialog
+          open={exportModalOpen}
+          onOpenChange={setExportModalOpen}
+          subjects={subjects}
+          semesterId={selectedSemesterId}
+          defaultSubjectId={selectedSubjectId}
         />
       )}
 
