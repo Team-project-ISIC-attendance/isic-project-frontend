@@ -1,4 +1,4 @@
-import { FileDown, Menu, Plus, Upload } from "lucide-react";
+import { FileDown, LogOut, Plus, Trash2, Upload } from "lucide-react";
 import type { components } from "@/api/schema";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,9 +17,11 @@ interface CalendarToolbarProps {
   onSemesterChange: (id: number) => void;
   activeWeekDisplay: string;
   onCreateSemester: () => void;
+  onDeleteSemester: () => void;
   onImportStudents: () => void;
   onAddScheduleEntry: () => void;
   onExportAttendance: () => void;
+  onLogout: () => void;
 }
 
 export function CalendarToolbar({
@@ -28,14 +30,16 @@ export function CalendarToolbar({
   onSemesterChange,
   activeWeekDisplay,
   onCreateSemester,
+  onDeleteSemester,
   onImportStudents,
   onAddScheduleEntry,
   onExportAttendance,
+  onLogout,
 }: CalendarToolbarProps) {
   const selectedSemester = semesters.find((s) => s.id === selectedSemesterId);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-custom px-4 py-3">
+    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 border-b border-border-custom px-4 py-3">
       {/* Left section */}
       <div className="flex items-center gap-2">
         <Select
@@ -62,12 +66,22 @@ export function CalendarToolbar({
           <Plus className="mr-1 h-4 w-4" />
           Pridať semester
         </Button>
+
+        <Button
+          variant="outline"
+          size="icon-sm"
+          onClick={onDeleteSemester}
+          disabled={selectedSemesterId === null}
+          aria-label="Odstrániť semester"
+          title="Odstrániť semester"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
       </div>
 
       {/* Center section */}
-      <div className="flex items-center gap-3">
-        <Menu className="h-5 w-5 text-text-secondary" />
-        <h1 className="font-heading text-xl font-medium text-text">
+      <div className="min-w-0">
+        <h1 className="truncate font-heading text-xl font-medium text-text">
           {activeWeekDisplay}
         </h1>
       </div>
@@ -89,6 +103,16 @@ export function CalendarToolbar({
         <Button size="sm" onClick={onAddScheduleEntry}>
           <Plus className="mr-1 h-4 w-4" />
           Pridať rozvrh. jednotka
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onLogout}
+          aria-label="Odhlásiť sa"
+          title="Odhlásiť sa"
+        >
+          <LogOut className="h-4 w-4" />
         </Button>
       </div>
     </div>

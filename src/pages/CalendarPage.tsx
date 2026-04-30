@@ -7,6 +7,7 @@ import {
   fetchWeekLessons,
   fetchSubjects,
   updateWeekNote,
+  deleteSemester,
 } from "@/api/calendar";
 import { CalendarToolbar } from "@/features/calendar/CalendarToolbar";
 import { WeekSidebar } from "@/features/calendar/WeekSidebar";
@@ -16,6 +17,7 @@ import { EventPanel } from "@/features/attendance/EventPanel";
 import { SubjectOverview } from "@/features/attendance/SubjectOverview";
 import { AttendanceExportDialog } from "@/features/attendance/AttendanceExportDialog";
 import { ImportStudentsModal } from "@/features/import/ImportStudentsModal";
+import { useAuth } from "@/features/auth/useAuth";
 import { SemesterFormDialog } from "../features/calendar/SemesterFormDialog";
 
 type SemesterResponse = components["schemas"]["SemesterResponse"];
@@ -25,6 +27,7 @@ type WeekLessonResponse = components["schemas"]["WeekLessonResponse"];
 type SubjectResponse = components["schemas"]["SubjectResponse"];
 
 export function CalendarPage() {
+  const { logout } = useAuth();
   const [semesters, setSemesters] = useState<SemesterResponse[]>([]);
   const [selectedSemesterId, setSelectedSemesterId] = useState<number | null>(
     null,
@@ -133,6 +136,37 @@ export function CalendarPage() {
     await loadSemesterData(semester.id, 1);
   }
 
+  async function handleDeleteSemester() {
+    if (selectedSemesterId === null) return;
+    const semester = semesters.find((item) => item.id === selectedSemesterId);
+    const semesterName = semester?.name ?? "vybraný semester";
+    if (!confirm(`Naozaj chcete odstrániť semester ${semesterName}?`)) return;
+
+    await deleteSemester(selectedSemesterId);
+    const updatedSemesters = await fetchSemesters();
+    setSemesters(updatedSemesters);
+    setEventPanelOpen(false);
+    setOverviewOpen(false);
+    setSelectedLessonId(null);
+    setSelectedSubjectId(null);
+    setSelectedEntryId(null);
+    setSelectedEntry(null);
+    setActiveWeek(1);
+
+    const nextSemester = updatedSemesters[0] ?? null;
+    if (nextSemester === null) {
+      setSelectedSemesterId(null);
+      setSchedule([]);
+      setWeeks([]);
+      setWeekLessons([]);
+      setSubjects(await fetchSubjects());
+      return;
+    }
+
+    setSelectedSemesterId(nextSemester.id);
+    await loadSemesterData(nextSemester.id, 1);
+  }
+
   // Schedule entry created
   async function handleScheduleEntryCreated() {
     if (selectedSemesterId === null) return;
@@ -182,12 +216,14 @@ export function CalendarPage() {
         onSemesterChange={handleSemesterChange}
         activeWeekDisplay={activeWeekDisplay}
         onCreateSemester={() => setSemesterFormOpen(true)}
+        onDeleteSemester={handleDeleteSemester}
         onImportStudents={() => setImportModalOpen(true)}
         onAddScheduleEntry={() => {
           setEditingEntry(null);
           setScheduleEntryFormOpen(true);
         }}
         onExportAttendance={() => setExportModalOpen(true)}
+        onLogout={logout}
       />
       <div className="flex flex-1 overflow-hidden">
         <WeekSidebar

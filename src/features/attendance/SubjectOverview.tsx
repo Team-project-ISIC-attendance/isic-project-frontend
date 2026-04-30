@@ -64,26 +64,16 @@ function getInitials(firstName: string | null, lastName: string | null): string 
 function StatusBadgeCell({
   status,
   attendanceId,
-  isFuture,
   isCancelled,
   onStatusChange,
 }: {
   status: string | null;
   attendanceId: number | null;
-  isFuture: boolean;
   isCancelled: boolean;
   onStatusChange: (attendanceId: number, newStatus: string) => void;
 }) {
   if (isCancelled || attendanceId === null || status === null) {
     return <span className="text-xs text-gray-400">—</span>;
-  }
-
-  if (isFuture) {
-    return (
-      <span className="inline-flex items-center rounded-[5px] bg-gray-100 px-2 py-1 font-heading text-xs font-medium text-gray-400">
-        Plánovaný
-      </span>
-    );
   }
 
   const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.nepritomny;
@@ -195,9 +185,6 @@ export function SubjectOverview({
   const entry = data.schedule_entry;
   const weeks = data.weeks;
   const typeConfig = LESSON_TYPE_CONFIG[entry.lesson_type] ?? LESSON_TYPE_CONFIG.cvicenie;
-
-  // Determine current week index for highlighting and future detection
-  const currentWeekIndex = weeks.findIndex((w) => w.is_current);
 
   // Apply optimistic updates to student data
   const studentsWithOptimistic: OverviewStudent[] = data.students.map((student) => ({
@@ -367,9 +354,8 @@ export function SubjectOverview({
                 </div>
 
                 {/* Scrollable week columns */}
-                {weeks.map((week, wIdx) => {
+                {weeks.map((week) => {
                   const isCurrent = week.is_current;
-                  const isFuture = currentWeekIndex >= 0 && wIdx > currentWeekIndex;
 
                   return (
                     <div
@@ -410,7 +396,6 @@ export function SubjectOverview({
                             <StatusBadgeCell
                               status={sw?.status ?? null}
                               attendanceId={sw?.attendance_id ?? null}
-                              isFuture={isFuture}
                               isCancelled={week.lesson_id === null}
                               onStatusChange={handleStatusChange}
                             />
