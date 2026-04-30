@@ -66,7 +66,7 @@ export function StatusBadge({ status, onStatusChange }: StatusBadgeProps) {
           {(Object.keys(STATUS_CONFIG) as StatusKey[]).map((key) => (
             <DropdownMenuItem
               key={key}
-              onSelect={() => onStatusChange(key)}
+              onClick={() => onStatusChange(key)}
               className="cursor-pointer px-2 py-1.5"
             >
               <BadgeContent statusKey={key} />

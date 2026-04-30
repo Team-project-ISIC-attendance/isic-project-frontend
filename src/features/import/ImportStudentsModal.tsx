@@ -8,13 +8,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Upload } from "lucide-react";
@@ -118,8 +111,6 @@ export function ImportStudentsModal({
     }
   }
 
-  const selectedSubject = subjects.find((s) => String(s.id) === subjectId);
-
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -130,31 +121,42 @@ export function ImportStudentsModal({
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Label>Predmet</Label>
-            <Select
+            <select
               value={subjectId}
-              onValueChange={(val) => {
-                if (val !== null) setSubjectId(val);
-              }}
+              onChange={(event) => setSubjectId(event.target.value)}
+              className="flex h-10 w-full rounded-md border border-[#d5d7da] bg-white px-3 text-sm text-[#404040] outline-none focus:border-ring focus:ring-3 focus:ring-ring/50"
             >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Vyberte predmet">
-                  {selectedSubject?.name ?? "Vyberte predmet"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {subjects.map((s) => (
-                  <SelectItem key={s.id} value={String(s.id)}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              <option value="">Vyberte predmet</option>
+              {subjects.map((subject) => (
+                <option key={subject.id} value={String(subject.id)}>
+                  {subject.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {!result && (
             <>
               <div className="flex flex-col gap-2">
-                <Label>CSV súbor</Label>
+                <div className="flex items-center justify-between gap-3">
+                  <Label>CSV súbor</Label>
+                  <div className="flex gap-3 text-xs">
+                    <a
+                      href="/samples/students-import.csv"
+                      download
+                      className="font-medium text-primary underline"
+                    >
+                      vzor CSV
+                    </a>
+                    <a
+                      href="/samples/students-import-semicolon.csv"
+                      download
+                      className="font-medium text-primary underline"
+                    >
+                      vzor CSV ;
+                    </a>
+                  </div>
+                </div>
                 <div
                   className={`flex flex-col items-center justify-center rounded-md border-2 border-dashed p-6 transition-colors ${
                     dragOver

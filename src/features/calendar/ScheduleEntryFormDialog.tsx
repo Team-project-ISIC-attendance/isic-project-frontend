@@ -8,7 +8,12 @@ import {
   Calendar,
   ChevronDown,
 } from "lucide-react";
-import { createScheduleEntry, createSubject } from "@/api/calendar";
+import type { components } from "@/api/schema";
+import {
+  createScheduleEntry,
+  createSubject,
+  updateScheduleEntry,
+} from "@/api/calendar";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
@@ -31,43 +36,56 @@ const COLOR_PRESETS = [
 ] as const;
 
 const DAY_LABELS = [
-  { value: 0, label: "M" },
-  { value: 1, label: "T" },
-  { value: 2, label: "W" },
-  { value: 3, label: "T" },
-  { value: 4, label: "F" },
-  { value: 5, label: "S" },
-  { value: 6, label: "S" },
+  { value: 1, label: "M" },
+  { value: 2, label: "T" },
+  { value: 3, label: "W" },
+  { value: 4, label: "T" },
+  { value: 5, label: "F" },
 ] as const;
+
+type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
 
 interface ScheduleEntryFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   semesterId: number;
-  totalWeeks: number;
-  onCreated: () => void;
+  mode?: "create" | "edit";
+  entry?: ScheduleEntryResponse | null;
+  onCreated: () => void | Promise<void>;
+  onUpdated?: () => void | Promise<void>;
 }
 
 export function ScheduleEntryFormDialog({
   open,
   onOpenChange,
   semesterId,
-  totalWeeks,
+  mode = "create",
+  entry = null,
   onCreated,
+  onUpdated,
 }: ScheduleEntryFormDialogProps) {
+  const isEditing = mode === "edit" && entry !== null;
   const [activeTab, setActiveTab] = useState<"recurring" | "one-time">(
-    "recurring",
+    entry?.is_one_time ? "one-time" : "recurring",
   );
-  const [name, setName] = useState("");
-  const [startTime, setStartTime] = useState("08:00");
-  const [endTime, setEndTime] = useState("10:00");
-  const [lessonType, setLessonType] = useState("prednaska");
-  const [room, setRoom] = useState("");
-  const [color, setColor] = useState<string>(COLOR_PRESETS[0]);
-  const [selectedDays, setSelectedDays] = useState<Set<number>>(new Set());
-  const [recurrenceInterval, setRecurrenceInterval] = useState(totalWeeks);
-  const [endOption, setEndOption] = useState<"semester" | "date">("semester");
-  const [endDate, setEndDate] = useState("");
+  const [name, setName] = useState(entry?.subject_name ?? "");
+  const [startTime, setStartTime] = useState(entry?.start_time ?? "08:00");
+  const [endTime, setEndTime] = useState(entry?.end_time ?? "10:00");
+  const [lessonType, setLessonType] = useState(entry?.lesson_type ?? "prednaska");
+  const [room, setRoom] = useState(entry?.room ?? "");
+  const [color, setColor] = useState<string>(
+    entry?.subject_color || COLOR_PRESETS[0],
+  );
+  const [selectedDays, setSelectedDays] = useState<Set<number>>(
+    entry ? new Set([entry.day_of_week]) : new Set(),
+  );
+  const [recurrenceInterval, setRecurrenceInterval] = useState(
+    entry?.recurrence_interval || 1,
+  );
+  const [endOption, setEndOption] = useState<"semester" | "date">(
+    entry?.end_date ? "date" : "semester",
+  );
+  const [endDate, setEndDate] = useState(entry?.end_date ?? "");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -80,7 +98,7 @@ export function ScheduleEntryFormDialog({
     setRoom("");
     setColor(COLOR_PRESETS[0]);
     setSelectedDays(new Set());
-    setRecurrenceInterval(totalWeeks);
+    setRecurrenceInterval(1);
     setEndOption("semester");
     setEndDate("");
     setError("");
@@ -92,6 +110,10 @@ export function ScheduleEntryFormDialog({
   }
 
   function toggleDay(day: number) {
+    if (isEditing) {
+      setSelectedDays(new Set([day]));
+      return;
+    }
     setSelectedDays((prev) => {
       const next = new Set(prev);
       if (next.has(day)) {
@@ -120,10 +142,38 @@ export function ScheduleEntryFormDialog({
       setError("Vyberte aspoň jeden deň");
       return;
     }
+    if (isEditing && activeTab === "recurring" && selectedDays.size !== 1) {
+      setError("Pri úprave vyberte jeden deň");
+      return;
+    }
 
     setSubmitting(true);
 
     try {
+      const isOneTime = activeTab === "one-time";
+      const computedEndDate = endOption === "date" && endDate ? endDate : null;
+
+      if (isEditing && entry !== null) {
+        const selectedDay = Array.from(selectedDays)[0] ?? entry.day_of_week;
+        await updateScheduleEntry(semesterId, entry.id, {
+          subject_name: name.trim(),
+          subject_color: color,
+          day_of_week: isOneTime ? entry.day_of_week : selectedDay,
+          start_time: startTime,
+          end_time: endTime,
+          room: room || null,
+          lesson_type: lessonType,
+          is_one_time: isOneTime,
+          recurrence_interval: isOneTime ? 1 : recurrenceInterval,
+          end_date: computedEndDate,
+        });
+
+        resetForm();
+        onOpenChange(false);
+        await onUpdated?.();
+        return;
+      }
+
       // Auto-create subject from name + color
       const autoCode = name.trim().slice(0, 3).toUpperCase() || name.trim();
       const subject = await createSubject({
@@ -132,14 +182,11 @@ export function ScheduleEntryFormDialog({
         color,
       });
 
-      const isOneTime = activeTab === "one-time";
-      const computedEndDate = endOption === "date" && endDate ? endDate : null;
-
       if (isOneTime) {
-        // One-time: create a single entry for day 0 (Monday by default)
+        // One-time: create a single entry for Monday by default.
         await createScheduleEntry(semesterId, {
           subject_id: subject.id,
-          day_of_week: 0,
+          day_of_week: 1,
           start_time: startTime,
           end_time: endTime,
           room: room || null,
@@ -168,10 +215,14 @@ export function ScheduleEntryFormDialog({
 
       resetForm();
       onOpenChange(false);
-      onCreated();
+      await onCreated();
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Chyba pri vytváraní";
+        err instanceof Error
+          ? err.message
+          : isEditing
+            ? "Chyba pri ukladaní"
+            : "Chyba pri vytváraní";
       setError(message);
     } finally {
       setSubmitting(false);
@@ -201,11 +252,14 @@ export function ScheduleEntryFormDialog({
               </div>
               <div className="flex flex-col gap-1">
                 <h2 className="text-lg font-semibold text-[#171717] leading-7">
-                  Pridať rozvrhovú jednotku
+                  {isEditing
+                    ? "Upraviť rozvrhovú jednotku"
+                    : "Pridať rozvrhovú jednotku"}
                 </h2>
                 <p className="text-sm font-normal text-[#525252] leading-5">
-                  Vyplňte všetky polia a následne môžete vytvoriť rozvrhovú
-                  jednotku.
+                  {isEditing
+                    ? "Upravte údaje a následne uložte zmeny rozvrhovej jednotky."
+                    : "Vyplňte všetky polia a následne môžete vytvoriť rozvrhovú jednotku."}
                 </p>
               </div>
             </div>
@@ -516,7 +570,13 @@ export function ScheduleEntryFormDialog({
                 disabled={submitting}
                 className="flex-1 rounded-lg bg-[#1d4ed8] py-2.5 text-base font-semibold text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] hover:bg-[#1a44c2] disabled:opacity-50"
               >
-                {submitting ? "Vytváranie..." : "Vytvoriť"}
+                {submitting
+                  ? isEditing
+                    ? "Ukladanie..."
+                    : "Vytváranie..."
+                  : isEditing
+                    ? "Uložiť zmeny"
+                    : "Vytvoriť"}
               </button>
             </div>
           </form>

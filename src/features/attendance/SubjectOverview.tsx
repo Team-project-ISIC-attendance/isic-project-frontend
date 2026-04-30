@@ -52,6 +52,7 @@ interface SubjectOverviewProps {
   semesterId: number;
   onClose: () => void;
   onMinimize: () => void;
+  onEdit?: () => void;
 }
 
 function getInitials(firstName: string | null, lastName: string | null): string {
@@ -101,7 +102,7 @@ function StatusBadgeCell({
           {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
             <DropdownMenuItem
               key={key}
-              onSelect={() => onStatusChange(attendanceId, key)}
+              onClick={() => onStatusChange(attendanceId, key)}
               className="cursor-pointer px-2 py-1.5"
             >
               <span
@@ -124,9 +125,11 @@ export function SubjectOverview({
   semesterId,
   onClose,
   onMinimize,
+  onEdit,
 }: SubjectOverviewProps) {
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -135,9 +138,16 @@ export function SubjectOverview({
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const result = await fetchScheduleEntryOverview(subjectId, entryId, semesterId);
-      setData(result);
-      setLoading(false);
+      setError("");
+      try {
+        const result = await fetchScheduleEntryOverview(subjectId, entryId, semesterId);
+        setData(result);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Načítanie zlyhalo");
+        setData(null);
+      } finally {
+        setLoading(false);
+      }
     }
     load();
   }, [subjectId, entryId, semesterId]);
@@ -167,6 +177,19 @@ export function SubjectOverview({
     );
   }
 
+  if (error) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-white">
+        <p className="text-sm text-danger">{error}</p>
+        <button
+          onClick={onClose}
+          className="rounded-lg border border-[#d4d4d4] bg-white px-4 py-2 text-sm font-medium text-black shadow-xs hover:bg-gray-50"
+        >
+          Zavrieť
+        </button>
+      </div>
+    );
+  }
   if (!data) return null;
 
   const entry = data.schedule_entry;
@@ -236,7 +259,10 @@ export function SubjectOverview({
               <X size={20} />
             </button>
             <div className="flex flex-col gap-2">
-              <button className="flex h-9 w-[187px] items-center justify-center gap-2 rounded-lg border border-[#d4d4d4] bg-white font-heading text-sm font-medium text-black shadow-xs hover:bg-gray-50">
+              <button
+                onClick={onEdit}
+                className="flex h-9 w-[187px] items-center justify-center gap-2 rounded-lg border border-[#d4d4d4] bg-white font-heading text-sm font-medium text-black shadow-xs hover:bg-gray-50"
+              >
                 <Pencil size={14} />
                 Zmena udalosti
               </button>
@@ -271,7 +297,7 @@ export function SubjectOverview({
           <div className="flex items-center gap-2">
             <span className="font-heading text-sm font-medium">Študenti</span>
             <span className="inline-flex items-center justify-center rounded-full border border-[rgba(229,229,229,0.9)] bg-[#f9f5ff] px-2 py-0.5 text-xs font-medium text-[#6941c6]">
-              {data.students.length}
+              {filtered.length}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -430,6 +456,7 @@ export function SubjectOverview({
       </div>
 
       <FilterModal
+        key={`${filterOpen}-${statusFilter ?? "all"}`}
         open={filterOpen}
         onOpenChange={setFilterOpen}
         onFilter={setStatusFilter}

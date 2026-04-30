@@ -15,9 +15,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { StudentCard } from "./StudentCard";
 import { useLiveAttendance } from "./useLiveAttendance";
 import { MoveStudentModal } from "./MoveStudentModal";
+import { FilterModal } from "./FilterModal";
 
-type AttendanceResponse = components["schemas"]["AttendanceResponse"];
-type AttendanceSummary = components["schemas"]["AttendanceSummary"];
 type AttendanceStudentEntry = components["schemas"]["AttendanceStudentEntry"];
 
 const LESSON_TYPE_CONFIG: Record<
@@ -48,18 +47,19 @@ interface EventPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onMaximize?: () => void;
+  onEdit?: () => void;
 }
 
 function formatDate(dateStr: string, dayOfWeek: number): string {
-  const dayNames = [
-    "Pondelok",
-    "Utorok",
-    "Streda",
-    "Štvrtok",
-    "Piatok",
-    "Sobota",
-    "Nedeľa",
-  ];
+  const dayNames: Record<number, string> = {
+    1: "Pondelok",
+    2: "Utorok",
+    3: "Streda",
+    4: "Štvrtok",
+    5: "Piatok",
+    6: "Sobota",
+    7: "Nedeľa",
+  };
   const dayName = dayNames[dayOfWeek] ?? "";
   const date = new Date(dateStr);
   const day = date.getDate();
@@ -85,22 +85,6 @@ function formatTimeRange(start: string, end: string): string {
   return `${start} - ${end}`;
 }
 
-function recalcSummary(
-  students: AttendanceResponse["students"],
-): AttendanceSummary {
-  let pritomny = 0;
-  let nepritomny = 0;
-  let nahrada = 0;
-  let ospravedlneny = 0;
-  for (const s of students) {
-    if (s.status === "pritomny") pritomny++;
-    else if (s.status === "nepritomny") nepritomny++;
-    else if (s.status === "nahrada") nahrada++;
-    else if (s.status === "ospravedlneny") ospravedlneny++;
-  }
-  return { total: students.length, pritomny, nepritomny, nahrada, ospravedlneny };
-}
-
 export function EventPanel({
   lessonId,
   subjectId,
@@ -108,10 +92,13 @@ export function EventPanel({
   open,
   onOpenChange,
   onMaximize,
+  onEdit,
 }: EventPanelProps) {
   const { data, loading, changedIds } = useLiveAttendance(lessonId, open);
   const [optimistic, setOptimistic] = useState<Map<number, string>>(new Map());
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [moveStudent, setMoveStudent] = useState<AttendanceStudentEntry | null>(null);
   const [moveModalOpen, setMoveModalOpen] = useState(false);
 
@@ -120,6 +107,7 @@ export function EventPanel({
     async function reset() {
       setOptimistic(new Map());
       setSearchQuery("");
+      setStatusFilter(null);
     }
     reset();
   }, [lessonId]);
@@ -147,12 +135,16 @@ export function EventPanel({
   });
 
   // Filter by search query
-  const filteredStudents = searchQuery
-    ? mergedStudents.filter((s) => {
-        const fullName = `${s.first_name ?? ""} ${s.last_name ?? ""}`.toLowerCase();
-        return fullName.includes(searchQuery.toLowerCase());
-      })
-    : mergedStudents;
+  let filteredStudents = mergedStudents;
+  if (searchQuery) {
+    filteredStudents = filteredStudents.filter((s) => {
+      const fullName = `${s.first_name ?? ""} ${s.last_name ?? ""}`.toLowerCase();
+      return fullName.includes(searchQuery.toLowerCase());
+    });
+  }
+  if (statusFilter) {
+    filteredStudents = filteredStudents.filter((s) => s.status === statusFilter);
+  }
 
   function handleExport() {
     if (subjectId !== null) {
@@ -190,9 +182,6 @@ export function EventPanel({
 
   const lesson = data?.lesson;
   const students = filteredStudents;
-  const summary = mergedStudents.length > 0
-    ? recalcSummary(mergedStudents)
-    : { total: 0, pritomny: 0, nepritomny: 0, nahrada: 0, ospravedlneny: 0 };
   const typeConfig = lesson
     ? LESSON_TYPE_CONFIG[lesson.lesson_type] ?? LESSON_TYPE_CONFIG.cvicenie
     : LESSON_TYPE_CONFIG.cvicenie;
@@ -252,7 +241,10 @@ export function EventPanel({
 
                 {/* Action Buttons */}
                 <div className="mt-5 flex gap-3">
-                  <button className="flex h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-[#d4d4d4] bg-white font-heading text-sm font-medium text-black shadow-xs hover:bg-gray-50">
+                  <button
+                    onClick={onEdit}
+                    className="flex h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-[#d4d4d4] bg-white font-heading text-sm font-medium text-black shadow-xs hover:bg-gray-50"
+                  >
                     <Pencil size={16} />
                     Zmena udalosti
                   </button>
@@ -284,15 +276,20 @@ export function EventPanel({
                       Študenti
                     </span>
                     <span className="inline-flex items-center justify-center rounded-full border border-[rgba(229,229,229,0.9)] bg-[#f9f5ff] px-2 py-0.5 text-xs font-medium text-[#6941c6]">
-                      {summary.total}
+                      {students.length}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="relative rounded-md p-1 text-gray-400 hover:text-gray-600">
+                    <button
+                      onClick={() => setFilterOpen(true)}
+                      className="relative rounded-md p-1 text-gray-400 hover:text-gray-600"
+                    >
                       <SlidersHorizontal size={16} />
-                      <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-[#6941c6] text-[10px] font-medium text-white">
-                        1
-                      </span>
+                      {statusFilter && (
+                        <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-[#6941c6] text-[10px] font-medium text-white">
+                          1
+                        </span>
+                      )}
                     </button>
                     <button
                       onClick={onMaximize}
@@ -348,6 +345,14 @@ export function EventPanel({
           onMoved={handleMoved}
         />
       )}
+
+      <FilterModal
+        key={`${filterOpen}-${statusFilter ?? "all"}`}
+        open={filterOpen}
+        onOpenChange={setFilterOpen}
+        onFilter={setStatusFilter}
+        currentFilter={statusFilter}
+      />
     </>
   );
 }
