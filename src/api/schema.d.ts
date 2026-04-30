@@ -523,6 +523,8 @@ export interface components {
         AttendanceStudentEntry: {
             /** Attendance Id */
             attendance_id: number;
+            /** Enrollment Id */
+            enrollment_id: number | null;
             /** Isic Identifier */
             isic_identifier: string;
             /** First Name */
@@ -1026,6 +1028,8 @@ export interface components {
             nepritomny: number;
             /** Nahrada */
             nahrada: number;
+            /** Ospravedlneny */
+            ospravedlneny: number;
         };
         /** WeekLessonResponse */
         WeekLessonResponse: {

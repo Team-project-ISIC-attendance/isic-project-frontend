@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { components } from "@/api/schema";
 import { fetchLessonAttendance } from "@/api/attendance";
 
@@ -16,11 +16,22 @@ export function useLiveAttendance(
   data: AttendanceResponse | null;
   loading: boolean;
   changedIds: Set<number>;
+  refresh: () => Promise<void>;
 } {
   const [data, setData] = useState<AttendanceResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [changedIds, setChangedIds] = useState<Set<number>>(EMPTY_CHANGED);
   const prevStudentsRef = useRef<AttendanceStudentEntry[] | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (lessonId === null) return;
+
+    const result = await fetchLessonAttendance(lessonId);
+    prevStudentsRef.current = result.students;
+    setData(result);
+    setLoading(false);
+  }, [lessonId]);
 
   useEffect(() => {
     if (!enabled || lessonId === null) {
@@ -47,16 +58,24 @@ export function useLiveAttendance(
           const newChanged = new Set<number>();
           for (const student of result.students) {
             const prevStatus = prevMap.get(student.attendance_id);
-            if (prevStatus !== undefined && prevStatus !== student.status) {
+            if (
+              prevStatus !== undefined
+              && prevStatus !== student.status
+              && student.marked_by === "scan"
+            ) {
               newChanged.add(student.attendance_id);
             }
           }
           if (newChanged.size > 0) {
             setChangedIds(newChanged);
-            setTimeout(() => {
+            if (timeoutRef.current !== null) {
+              clearTimeout(timeoutRef.current);
+            }
+            timeoutRef.current = setTimeout(() => {
               if (!cancelled) {
                 setChangedIds(EMPTY_CHANGED);
               }
+              timeoutRef.current = null;
             }, ANIMATION_DURATION_MS);
           }
         }
@@ -86,6 +105,10 @@ export function useLiveAttendance(
       if (intervalId !== null) {
         clearInterval(intervalId);
       }
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
     };
   }, [lessonId, enabled]);
 
@@ -96,5 +119,6 @@ export function useLiveAttendance(
     data: active ? data : null,
     loading: active ? loading : false,
     changedIds: active ? changedIds : EMPTY_CHANGED,
+    refresh,
   };
 }

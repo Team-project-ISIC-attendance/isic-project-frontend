@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X, Pencil, Upload, Search, SlidersHorizontal, Maximize2 } from "lucide-react";
 import type { components } from "@/api/schema";
 import {
@@ -39,6 +39,8 @@ const LESSON_TYPE_CONFIG: Record<
     text: "#E9A100",
   },
 };
+
+const MANUAL_ANIMATION_DURATION_MS = 1500;
 
 interface EventPanelProps {
   lessonId: number | null;
@@ -94,8 +96,9 @@ export function EventPanel({
   onMaximize,
   onEdit,
 }: EventPanelProps) {
-  const { data, loading, changedIds } = useLiveAttendance(lessonId, open);
+  const { data, loading, changedIds, refresh } = useLiveAttendance(lessonId, open);
   const [optimistic, setOptimistic] = useState<Map<number, string>>(new Map());
+  const [manualChangedIds, setManualChangedIds] = useState<Set<number>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -108,21 +111,49 @@ export function EventPanel({
       setOptimistic(new Map());
       setSearchQuery("");
       setStatusFilter(null);
+      setManualChangedIds(new Set());
     }
     reset();
   }, [lessonId]);
 
-  function handleStatusChange(attendanceId: number, newStatus: string) {
+  function triggerManualFlash(attendanceId: number) {
+    setManualChangedIds((prev) => new Set(prev).add(attendanceId));
+    window.setTimeout(() => {
+      setManualChangedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(attendanceId);
+        return next;
+      });
+    }, MANUAL_ANIMATION_DURATION_MS);
+  }
+
+  async function handleStatusChange(attendanceId: number, newStatus: string) {
     setOptimistic((prev) => new Map(prev).set(attendanceId, newStatus));
 
-    updateAttendanceStatus(attendanceId, newStatus).catch(() => {
+    try {
+      const result = await updateAttendanceStatus(attendanceId, newStatus);
+      setOptimistic((prev) => new Map(prev).set(attendanceId, result.status));
+      triggerManualFlash(attendanceId);
+      await refresh();
       setOptimistic((prev) => {
         const next = new Map(prev);
         next.delete(attendanceId);
         return next;
       });
-    });
+    } catch {
+      setOptimistic((prev) => {
+        const next = new Map(prev);
+        next.delete(attendanceId);
+        return next;
+      });
+    }
   }
+
+  const highlightedIds = useMemo(() => {
+    const ids = new Set(changedIds);
+    for (const id of manualChangedIds) ids.add(id);
+    return ids;
+  }, [changedIds, manualChangedIds]);
 
   // Merge polled data with optimistic updates
   const rawStudents = data?.students ?? [];
@@ -157,27 +188,28 @@ export function EventPanel({
     setMoveModalOpen(true);
   }
 
-  function handleRemove(student: AttendanceStudentEntry) {
+  async function handleRemove(student: AttendanceStudentEntry) {
     if (subjectId === null) return;
     if (!confirm(`Naozaj chcete odstrániť študenta ${student.first_name} ${student.last_name}?`)) return;
 
-    // Find enrollment_id from student data — use attendance_id as a workaround
-    // The delete endpoint uses enrollment_id, but we have isic_id
-    // Use the student's enrollment_id if available
-    const enrollmentId = (student as Record<string, unknown>).enrollment_id as number | undefined;
-    if (enrollmentId === undefined) {
+    const enrollmentId = student.enrollment_id;
+    if (enrollmentId === null) {
       alert("Nie je možné odstrániť študenta — chýba enrollment ID.");
       return;
     }
 
-    deleteEnrollment(subjectId, enrollmentId).catch(() => {
+    try {
+      await deleteEnrollment(subjectId, enrollmentId);
+      await refresh();
+    } catch {
       alert("Nepodarilo sa odstrániť študenta.");
-    });
+    }
   }
 
-  function handleMoved() {
+  async function handleMoved() {
     setMoveModalOpen(false);
     setMoveStudent(null);
+    await refresh();
   }
 
   const lesson = data?.lesson;
@@ -318,7 +350,7 @@ export function EventPanel({
                         onMove={handleMove}
                         onRemove={handleRemove}
                         index={index}
-                        justScanned={changedIds.has(student.attendance_id)}
+                        justScanned={highlightedIds.has(student.attendance_id)}
                       />
                     ))}
                   </div>
@@ -335,6 +367,7 @@ export function EventPanel({
           onOpenChange={setMoveModalOpen}
           student={moveStudent}
           attendanceId={moveStudent.attendance_id}
+          currentLessonId={lesson.id}
           subjectId={subjectId}
           semesterId={semesterId}
           lessonInfo={{

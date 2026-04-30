@@ -13,13 +13,19 @@ type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
 type LessonResponse = components["schemas"]["LessonResponse"];
 
 const DAY_NAMES: Record<number, string> = {
-  0: "Pondelok",
-  1: "Utorok",
-  2: "Streda",
-  3: "Štvrtok",
-  4: "Piatok",
-  5: "Sobota",
-  6: "Nedeľa",
+  1: "Pondelok",
+  2: "Utorok",
+  3: "Streda",
+  4: "Štvrtok",
+  5: "Piatok",
+  6: "Sobota",
+  7: "Nedeľa",
+};
+
+const LESSON_TYPE_LABELS: Record<string, string> = {
+  cvicenie: "Cvičenie",
+  prednaska: "Prednáška",
+  laboratorium: "Laboratórium",
 };
 
 interface MoveStudentModalProps {
@@ -27,6 +33,7 @@ interface MoveStudentModalProps {
   onOpenChange: (open: boolean) => void;
   student: AttendanceStudentEntry;
   attendanceId: number;
+  currentLessonId: number;
   subjectId: number | null;
   semesterId: number | null;
   lessonInfo: {
@@ -49,6 +56,7 @@ export function MoveStudentModal({
   onOpenChange,
   student,
   attendanceId,
+  currentLessonId,
   subjectId,
   semesterId,
   lessonInfo,
@@ -88,11 +96,13 @@ export function MoveStudentModal({
             entry.id,
           );
           for (const lesson of lessons) {
-            if (!lesson.cancelled) {
+            if (!lesson.cancelled && lesson.id !== currentLessonId) {
               const dayName = DAY_NAMES[entry.day_of_week] ?? "";
+              const lessonType =
+                LESSON_TYPE_LABELS[entry.lesson_type] ?? entry.lesson_type;
               allOptions.push({
                 lessonId: lesson.id,
-                label: `${dayName}, ${entry.start_time} - ${entry.end_time} (${lesson.date})`,
+                label: `${lessonType}, ${dayName}, ${entry.start_time} - ${entry.end_time} (${lesson.date})`,
                 entryId: entry.id,
                 date: lesson.date,
               });
@@ -117,7 +127,7 @@ export function MoveStudentModal({
     return () => {
       cancelled = true;
     };
-  }, [open, semesterId, subjectId]);
+  }, [open, semesterId, subjectId, currentLessonId]);
 
   async function handleSubmit() {
     if (!selectedTarget) return;

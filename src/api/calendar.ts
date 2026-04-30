@@ -22,6 +22,12 @@ export function createSemester(data: SemesterCreate): Promise<SemesterResponse> 
   });
 }
 
+export function deleteSemester(semesterId: number): Promise<void> {
+  return apiFetch<void>(`/semesters/${semesterId}`, {
+    method: "DELETE",
+  });
+}
+
 export function fetchSchedule(
   semesterId: number,
 ): Promise<ScheduleEntryResponse[]> {

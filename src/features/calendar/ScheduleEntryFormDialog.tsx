@@ -36,11 +36,11 @@ const COLOR_PRESETS = [
 ] as const;
 
 const DAY_LABELS = [
-  { value: 1, label: "M" },
-  { value: 2, label: "T" },
-  { value: 3, label: "W" },
-  { value: 4, label: "T" },
-  { value: 5, label: "F" },
+  { value: 1, label: "P", title: "Pondelok" },
+  { value: 2, label: "U", title: "Utorok" },
+  { value: 3, label: "S", title: "Streda" },
+  { value: 4, label: "Š", title: "Štvrtok" },
+  { value: 5, label: "P", title: "Piatok" },
 ] as const;
 
 type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
@@ -475,6 +475,8 @@ export function ScheduleEntryFormDialog({
                         <button
                           key={d.value}
                           type="button"
+                          title={d.title}
+                          aria-label={d.title}
                           onClick={() => toggleDay(d.value)}
                           className={`flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full text-sm font-medium transition-colors ${
                             selectedDays.has(d.value)
