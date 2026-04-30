@@ -6,8 +6,6 @@ import {
   DialogOverlay,
   DialogContent,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "Všetci" },
@@ -60,25 +58,17 @@ export function FilterModal({
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Prítomnosť
             </label>
-            <div className="grid grid-cols-2 gap-2">
-              {STATUS_OPTIONS.map((opt) => {
-                const active = selected === opt.value;
-                return (
-                  <Button
-                    key={opt.value}
-                    type="button"
-                    variant={active ? "default" : "outline"}
-                    className={cn(
-                      "justify-center",
-                      active && "bg-[#1D4ED8] text-white hover:bg-[#1e40af]",
-                    )}
-                    onClick={() => setSelected(opt.value)}
-                  >
-                    {opt.label}
-                  </Button>
-                );
-              })}
-            </div>
+            <select
+              value={selected}
+              onChange={(event) => setSelected(event.target.value)}
+              className="flex h-11 w-full rounded-md border border-[#d5d7da] bg-white px-3 text-sm text-[#404040] outline-none focus:border-ring focus:ring-3 focus:ring-ring/50"
+            >
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex justify-end gap-3">
