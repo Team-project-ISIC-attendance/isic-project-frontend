@@ -266,6 +266,7 @@ export function CalendarPage() {
 
       <EventPanel
         lessonId={selectedLessonId}
+        entryId={selectedEntryId}
         subjectId={selectedSubjectId}
         semesterId={selectedSemesterId}
         open={eventPanelOpen}

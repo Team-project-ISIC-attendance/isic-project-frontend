@@ -140,22 +140,13 @@ export function ImportStudentsModal({
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-3">
                   <Label>CSV súbor</Label>
-                  <div className="flex gap-3 text-xs">
-                    <a
-                      href="/samples/students-import.csv"
-                      download
-                      className="font-medium text-primary underline"
-                    >
-                      vzor CSV
-                    </a>
-                    <a
-                      href="/samples/students-import-semicolon.csv"
-                      download
-                      className="font-medium text-primary underline"
-                    >
-                      vzor CSV ;
-                    </a>
-                  </div>
+                  <a
+                    href="/samples/students-import.csv"
+                    download
+                    className="text-xs font-medium text-primary underline"
+                  >
+                    vzor CSV
+                  </a>
                 </div>
                 <div
                   className={`flex flex-col items-center justify-center rounded-md border-2 border-dashed p-6 transition-colors ${

@@ -42,7 +42,16 @@ export function SemesterFormDialog({
     e.preventDefault();
     setError("");
 
-    if (startDate && endDate && startDate > endDate) {
+    const formData = new FormData(e.currentTarget as HTMLFormElement);
+    const submittedName = String(formData.get("name") ?? "");
+    const submittedStartDate = String(formData.get("start_date") ?? "");
+    const submittedEndDate = String(formData.get("end_date") ?? "");
+
+    if (
+      submittedStartDate &&
+      submittedEndDate &&
+      submittedStartDate > submittedEndDate
+    ) {
       setError("Dátum začiatku musí byť pred dátumom konca");
       return;
     }
@@ -51,9 +60,9 @@ export function SemesterFormDialog({
 
     try {
       const semester = await createSemester({
-        name,
-        start_date: startDate,
-        end_date: endDate,
+        name: submittedName,
+        start_date: submittedStartDate,
+        end_date: submittedEndDate,
         total_weeks: totalWeeks,
       });
       resetForm();
@@ -125,6 +134,7 @@ export function SemesterFormDialog({
                 </Label>
                 <input
                   id="semester-name"
+                  name="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="napr. 25/26 LS"
@@ -146,9 +156,11 @@ export function SemesterFormDialog({
                   <div className="flex items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
                     <input
                       id="semester-start"
+                      name="start_date"
                       type="date"
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
+                      onInput={(e) => setStartDate(e.currentTarget.value)}
                       required
                       className="h-10 flex-1 appearance-none bg-transparent px-3 py-2 text-sm outline-none [&::-webkit-calendar-picker-indicator]:hidden"
                     />
@@ -169,9 +181,11 @@ export function SemesterFormDialog({
                   <div className="flex items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
                     <input
                       id="semester-end"
+                      name="end_date"
                       type="date"
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
+                      onInput={(e) => setEndDate(e.currentTarget.value)}
                       required
                       className="h-10 flex-1 appearance-none bg-transparent px-3 py-2 text-sm outline-none [&::-webkit-calendar-picker-indicator]:hidden"
                     />

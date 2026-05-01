@@ -43,6 +43,8 @@ const DAY_LABELS = [
   { value: 5, label: "P", title: "Piatok" },
 ] as const;
 
+const DEFAULT_RECURRENCE_INTERVAL = 1;
+
 type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
 
 interface ScheduleEntryFormDialogProps {
@@ -53,6 +55,17 @@ interface ScheduleEntryFormDialogProps {
   entry?: ScheduleEntryResponse | null;
   onCreated: () => void | Promise<void>;
   onUpdated?: () => void | Promise<void>;
+}
+
+function createAutoSubjectCode(subjectName: string) {
+  const normalized = subjectName
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase();
+  const prefix = normalized.slice(0, 6) || "SUB";
+  const suffix = Date.now().toString(36).slice(-4).toUpperCase();
+  return `${prefix}-${suffix}`;
 }
 
 export function ScheduleEntryFormDialog({
@@ -80,7 +93,7 @@ export function ScheduleEntryFormDialog({
     entry ? new Set([entry.day_of_week]) : new Set(),
   );
   const [recurrenceInterval, setRecurrenceInterval] = useState(
-    entry?.recurrence_interval || 1,
+    entry?.recurrence_interval ?? DEFAULT_RECURRENCE_INTERVAL,
   );
   const [endOption, setEndOption] = useState<"semester" | "date">(
     entry?.end_date ? "date" : "semester",
@@ -98,7 +111,7 @@ export function ScheduleEntryFormDialog({
     setRoom("");
     setColor(COLOR_PRESETS[0]);
     setSelectedDays(new Set());
-    setRecurrenceInterval(1);
+    setRecurrenceInterval(DEFAULT_RECURRENCE_INTERVAL);
     setEndOption("semester");
     setEndDate("");
     setError("");
@@ -175,7 +188,7 @@ export function ScheduleEntryFormDialog({
       }
 
       // Auto-create subject from name + color
-      const autoCode = name.trim().slice(0, 3).toUpperCase() || name.trim();
+      const autoCode = createAutoSubjectCode(name.trim());
       const subject = await createSubject({
         name: name.trim(),
         code: autoCode,
