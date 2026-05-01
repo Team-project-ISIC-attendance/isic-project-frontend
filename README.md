@@ -15,14 +15,17 @@ The development environment uses `.env.development`, which points
 
 ## Run Locally
 
-Start the backend first:
+Start the full Docker stack from the multirepo root:
 
 ```bash
-cd ../backend
-docker-compose up
+cd ..
+docker compose up --build
 ```
 
-In another terminal, start the frontend:
+This serves the production frontend through nginx at
+`http://localhost:5173/` and proxies `/api/*` requests to the backend.
+
+For frontend development with Vite, start the backend first and then run:
 
 ```bash
 npm install
