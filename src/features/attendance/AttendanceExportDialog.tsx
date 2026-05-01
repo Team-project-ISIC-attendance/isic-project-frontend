@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 
@@ -75,9 +76,9 @@ export function AttendanceExportDialog({
 
           <div className="flex flex-col gap-2">
             <Label>Formát</Label>
-            <div className="flex h-10 items-center rounded-lg border border-[#d5d7da] bg-[#fafafa] px-3 text-sm text-[#404040]">
+            <Badge variant="outline" className="h-7 px-3 text-sm">
               CSV
-            </div>
+            </Badge>
           </div>
 
           {error && <p className="text-sm text-danger">{error}</p>}

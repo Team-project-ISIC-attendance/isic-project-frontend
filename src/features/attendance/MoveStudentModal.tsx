@@ -34,6 +34,8 @@ interface MoveStudentModalProps {
   student: AttendanceStudentEntry;
   attendanceId: number;
   currentLessonId: number;
+  currentEntryId: number | null;
+  subjectName: string;
   subjectId: number | null;
   semesterId: number | null;
   lessonInfo: {
@@ -57,6 +59,8 @@ export function MoveStudentModal({
   student,
   attendanceId,
   currentLessonId,
+  currentEntryId,
+  subjectName,
   subjectId,
   semesterId,
   lessonInfo,
@@ -83,14 +87,16 @@ export function MoveStudentModal({
         // Get all schedule entries for the semester
         const entries = await fetchSchedule(semesterId!);
 
-        // Filter to entries of the same subject
-        const sameSubjectEntries = entries.filter(
-          (e: ScheduleEntryResponse) => e.subject_id === subjectId,
+        const normalizedSubjectName = subjectName.trim().toLowerCase();
+        const sameNamedEntries = entries.filter(
+          (e: ScheduleEntryResponse) =>
+            e.subject_name.trim().toLowerCase() === normalizedSubjectName &&
+            e.id !== currentEntryId,
         );
 
         // Fetch lessons for each entry
         const allOptions: TargetOption[] = [];
-        for (const entry of sameSubjectEntries) {
+        for (const entry of sameNamedEntries) {
           const lessons: LessonResponse[] = await fetchScheduleEntryLessons(
             semesterId!,
             entry.id,
@@ -127,7 +133,7 @@ export function MoveStudentModal({
     return () => {
       cancelled = true;
     };
-  }, [open, semesterId, subjectId, currentLessonId]);
+  }, [open, semesterId, subjectId, currentLessonId, currentEntryId, subjectName]);
 
   async function handleSubmit() {
     if (!selectedTarget) return;

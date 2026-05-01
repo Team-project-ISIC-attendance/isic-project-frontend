@@ -44,6 +44,7 @@ const MANUAL_ANIMATION_DURATION_MS = 1500;
 
 interface EventPanelProps {
   lessonId: number | null;
+  entryId: number | null;
   subjectId: number | null;
   semesterId: number | null;
   open: boolean;
@@ -89,6 +90,7 @@ function formatTimeRange(start: string, end: string): string {
 
 export function EventPanel({
   lessonId,
+  entryId,
   subjectId,
   semesterId,
   open,
@@ -261,7 +263,7 @@ export function EventPanel({
                     <h2 className="font-heading text-lg font-medium text-[#333]">
                       {lesson.subject_name}
                     </h2>
-                    <p className="flex items-center gap-1.5 font-body text-xs font-medium text-[#7C7C7C]">
+                    <p className="flex items-center gap-1.5 font-body text-[11px] font-medium text-[#7C7C7C]">
                       {formatDate(lesson.date, lesson.day_of_week)}
                       <span className="inline-block size-[3px] rounded-full bg-[#7C7C7C]" />
                       {formatTimeRange(lesson.start_time, lesson.end_time)}
@@ -368,6 +370,8 @@ export function EventPanel({
           student={moveStudent}
           attendanceId={moveStudent.attendance_id}
           currentLessonId={lesson.id}
+          currentEntryId={entryId}
+          subjectName={lesson.subject_name}
           subjectId={subjectId}
           semesterId={semesterId}
           lessonInfo={{
