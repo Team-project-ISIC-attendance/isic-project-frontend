@@ -6,7 +6,6 @@ import {
   Minus,
   Plus,
   Calendar,
-  ChevronDown,
 } from "lucide-react";
 import type { components } from "@/api/schema";
 import {
@@ -122,8 +121,18 @@ export function ScheduleEntryFormDialog({
     onOpenChange(nextOpen);
   }
 
+  function handleTabChange(nextTab: "recurring" | "one-time") {
+    setActiveTab(nextTab);
+    if (nextTab === "one-time") {
+      setSelectedDays((prev) => {
+        if (prev.size <= 1) return prev;
+        return new Set([Array.from(prev).sort((a, b) => a - b)[0]]);
+      });
+    }
+  }
+
   function toggleDay(day: number) {
-    if (isEditing) {
+    if (isEditing || activeTab === "one-time") {
       setSelectedDays(new Set([day]));
       return;
     }
@@ -155,6 +164,10 @@ export function ScheduleEntryFormDialog({
       setError("Vyberte aspoň jeden deň");
       return;
     }
+    if (activeTab === "one-time" && selectedDays.size !== 1) {
+      setError("Vyberte deň");
+      return;
+    }
     if (isEditing && activeTab === "recurring" && selectedDays.size !== 1) {
       setError("Pri úprave vyberte jeden deň");
       return;
@@ -171,7 +184,7 @@ export function ScheduleEntryFormDialog({
         await updateScheduleEntry(semesterId, entry.id, {
           subject_name: name.trim(),
           subject_color: color,
-          day_of_week: isOneTime ? entry.day_of_week : selectedDay,
+          day_of_week: selectedDay,
           start_time: startTime,
           end_time: endTime,
           room: room || null,
@@ -196,10 +209,11 @@ export function ScheduleEntryFormDialog({
       });
 
       if (isOneTime) {
-        // One-time: create a single entry for Monday by default.
+        // One-time: create a single entry for the selected day.
+        const selectedDay = Array.from(selectedDays)[0];
         await createScheduleEntry(semesterId, {
           subject_id: subject.id,
-          day_of_week: 1,
+          day_of_week: selectedDay,
           start_time: startTime,
           end_time: endTime,
           room: room || null,
@@ -288,7 +302,7 @@ export function ScheduleEntryFormDialog({
               <div className="flex rounded-lg border border-[#d5d7da] bg-[#fafafa] p-0.5">
                 <button
                   type="button"
-                  onClick={() => setActiveTab("recurring")}
+                  onClick={() => handleTabChange("recurring")}
                   className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
                     activeTab === "recurring"
                       ? "bg-white border border-[#d5d7da] text-[#171717] shadow-sm"
@@ -299,7 +313,7 @@ export function ScheduleEntryFormDialog({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab("one-time")}
+                  onClick={() => handleTabChange("one-time")}
                   className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
                     activeTab === "one-time"
                       ? "bg-white border border-[#d5d7da] text-[#171717] shadow-sm"
@@ -429,11 +443,11 @@ export function ScheduleEntryFormDialog({
                 </div>
               </div>
 
-              {/* Recurrence section (recurring tab only) */}
+              {/* Scheduling options */}
+              <div className="h-px bg-[#e5e5e5]" />
+
               {activeTab === "recurring" && (
                 <>
-                  <div className="h-px bg-[#e5e5e5]" />
-
                   {/* Opakovať každých */}
                   <div className="flex items-end gap-3">
                     <div className="flex flex-col gap-2">
@@ -468,103 +482,102 @@ export function ScheduleEntryFormDialog({
                         </button>
                       </div>
                     </div>
-                    <div className="flex flex-1 flex-col gap-2">
-                      <div className="flex items-center rounded-lg border border-[#d5d7da] h-[44px] px-3 shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
-                        <span className="flex-1 text-sm text-[#171717]">
-                          týždňov
-                        </span>
-                        <ChevronDown size={16} className="text-[#737373]" />
-                      </div>
+                    <div className="flex h-[44px] items-center pb-0.5">
+                      <span className="text-sm font-medium text-[#414651]">
+                        týždňov
+                      </span>
                     </div>
                   </div>
+                </>
+              )}
 
-                  {/* Opakovanie (day toggles) */}
-                  <div className="flex flex-col gap-2">
-                    <Label className="text-sm font-medium text-[#414651]">
-                      Opakovanie
-                    </Label>
-                    <div className="flex gap-2">
-                      {DAY_LABELS.map((d) => (
-                        <button
-                          key={d.value}
-                          type="button"
-                          title={d.title}
-                          aria-label={d.title}
-                          onClick={() => toggleDay(d.value)}
-                          className={`flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full text-sm font-medium transition-colors ${
-                            selectedDays.has(d.value)
-                              ? "bg-[#1d4ed8] text-white shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)]"
-                              : "border border-[#d5d7da] bg-white text-[#717680]"
-                          }`}
-                        >
-                          {d.label}
-                        </button>
-                      ))}
+              {/* Day selection */}
+              <div className="flex flex-col gap-2">
+                <Label className="text-sm font-medium text-[#414651]">
+                  {activeTab === "one-time" ? "Deň" : "Opakovanie"}
+                </Label>
+                <div className="flex gap-2">
+                  {DAY_LABELS.map((d) => (
+                    <button
+                      key={d.value}
+                      type="button"
+                      title={d.title}
+                      aria-label={d.title}
+                      onClick={() => toggleDay(d.value)}
+                      className={`flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full text-sm font-medium transition-colors ${
+                        selectedDays.has(d.value)
+                          ? "bg-[#1d4ed8] text-white shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)]"
+                          : "border border-[#d5d7da] bg-white text-[#717680]"
+                      }`}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Končí */}
+              {activeTab === "recurring" && (
+                <div className="flex flex-col gap-3">
+                  <Label className="text-sm font-medium text-[#414651]">
+                    Končí
+                  </Label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <div
+                      className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+                        endOption === "semester"
+                          ? "border-[#1d4ed8]"
+                          : "border-[#d5d7da]"
+                      }`}
+                    >
+                      {endOption === "semester" && (
+                        <div className="h-2.5 w-2.5 rounded-full bg-[#1d4ed8]" />
+                      )}
                     </div>
-                  </div>
-
-                  {/* Končí */}
-                  <div className="flex flex-col gap-3">
-                    <Label className="text-sm font-medium text-[#414651]">
-                      Končí
-                    </Label>
+                    <button
+                      type="button"
+                      onClick={() => setEndOption("semester")}
+                      className="text-sm text-[#171717]"
+                    >
+                      Koniec semestra
+                    </button>
+                  </label>
+                  <div className="flex items-center gap-3">
                     <label className="flex items-center gap-3 cursor-pointer">
                       <div
                         className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
-                          endOption === "semester"
+                          endOption === "date"
                             ? "border-[#1d4ed8]"
                             : "border-[#d5d7da]"
                         }`}
                       >
-                        {endOption === "semester" && (
+                        {endOption === "date" && (
                           <div className="h-2.5 w-2.5 rounded-full bg-[#1d4ed8]" />
                         )}
                       </div>
                       <button
                         type="button"
-                        onClick={() => setEndOption("semester")}
+                        onClick={() => setEndOption("date")}
                         className="text-sm text-[#171717]"
                       >
-                        Koniec semestra
+                        Dátum
                       </button>
                     </label>
-                    <div className="flex items-center gap-3">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <div
-                          className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
-                            endOption === "date"
-                              ? "border-[#1d4ed8]"
-                              : "border-[#d5d7da]"
-                          }`}
-                        >
-                          {endOption === "date" && (
-                            <div className="h-2.5 w-2.5 rounded-full bg-[#1d4ed8]" />
-                          )}
+                    {endOption === "date" && (
+                      <div className="flex flex-1 items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
+                        <input
+                          type="date"
+                          value={endDate}
+                          onChange={(e) => setEndDate(e.target.value)}
+                          className="h-10 flex-1 appearance-none bg-transparent px-3 py-2 text-sm outline-none [&::-webkit-calendar-picker-indicator]:hidden"
+                        />
+                        <div className="px-3">
+                          <Calendar size={16} className="text-[#737373]" />
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setEndOption("date")}
-                          className="text-sm text-[#171717]"
-                        >
-                          Dátum
-                        </button>
-                      </label>
-                      {endOption === "date" && (
-                        <div className="flex flex-1 items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
-                          <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            className="h-10 flex-1 appearance-none bg-transparent px-3 py-2 text-sm outline-none [&::-webkit-calendar-picker-indicator]:hidden"
-                          />
-                          <div className="px-3">
-                            <Calendar size={16} className="text-[#737373]" />
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
-                </>
+                </div>
               )}
 
               {/* Error */}
