@@ -1,13 +1,12 @@
 import { createContext } from "react";
-import type { components } from "@/api/schema";
-
-type UserResponse = components["schemas"]["UserResponse"];
+import type { AuthUserResponse } from "@/api/client";
 
 export interface AuthContextValue {
-  user: UserResponse | null;
+  user: AuthUserResponse | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

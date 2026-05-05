@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import type { components } from "@/api/schema";
 import {
   fetchSemesters,
@@ -28,6 +29,7 @@ type SubjectResponse = components["schemas"]["SubjectResponse"];
 
 export function CalendarPage() {
   const { logout } = useAuth();
+  const navigate = useNavigate();
   const [semesters, setSemesters] = useState<SemesterResponse[]>([]);
   const [selectedSemesterId, setSelectedSemesterId] = useState<number | null>(
     null,
@@ -223,6 +225,7 @@ export function CalendarPage() {
           setScheduleEntryFormOpen(true);
         }}
         onExportAttendance={() => setExportModalOpen(true)}
+        onManageDevices={() => navigate("/devices")}
         onLogout={logout}
       />
       <div className="flex flex-1 overflow-hidden">

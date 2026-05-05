@@ -1,4 +1,4 @@
-import { FileDown, LogOut, Plus, Trash2, Upload } from "lucide-react";
+import { Cpu, FileDown, LogOut, Plus, Trash2, Upload } from "lucide-react";
 import type { components } from "@/api/schema";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +21,7 @@ interface CalendarToolbarProps {
   onImportStudents: () => void;
   onAddScheduleEntry: () => void;
   onExportAttendance: () => void;
+  onManageDevices: () => void;
   onLogout: () => void;
 }
 
@@ -34,6 +35,7 @@ export function CalendarToolbar({
   onImportStudents,
   onAddScheduleEntry,
   onExportAttendance,
+  onManageDevices,
   onLogout,
 }: CalendarToolbarProps) {
   const selectedSemester = semesters.find((s) => s.id === selectedSemesterId);
@@ -99,6 +101,11 @@ export function CalendarToolbar({
             Export dochádzky
           </Button>
         )}
+
+        <Button variant="outline" size="sm" onClick={onManageDevices}>
+          <Cpu className="mr-1 h-4 w-4" />
+          Zariadenia
+        </Button>
 
         <Button size="sm" onClick={onAddScheduleEntry}>
           <Plus className="mr-1 h-4 w-4" />
