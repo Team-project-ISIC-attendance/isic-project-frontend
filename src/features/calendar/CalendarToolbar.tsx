@@ -1,6 +1,7 @@
-import { FileDown, LogOut, Plus, Trash2, Upload } from "lucide-react";
+import { Cpu, FileDown, LogOut, Plus, Trash2, Upload } from "lucide-react";
 import type { components } from "@/api/schema";
 import { Button } from "@/components/ui/button";
+import { ConfirmationPopover } from "@/components/ui/confirmation-popover";
 import {
   Select,
   SelectContent,
@@ -17,10 +18,14 @@ interface CalendarToolbarProps {
   onSemesterChange: (id: number) => void;
   activeWeekDisplay: string;
   onCreateSemester: () => void;
-  onDeleteSemester: () => void;
+  deleteSemesterConfirmOpen: boolean;
+  onDeleteSemesterConfirmOpenChange: (open: boolean) => void;
+  onConfirmDeleteSemester: () => void;
+  isDeletingSemester: boolean;
   onImportStudents: () => void;
   onAddScheduleEntry: () => void;
   onExportAttendance: () => void;
+  onManageDevices: () => void;
   onLogout: () => void;
 }
 
@@ -30,10 +35,14 @@ export function CalendarToolbar({
   onSemesterChange,
   activeWeekDisplay,
   onCreateSemester,
-  onDeleteSemester,
+  deleteSemesterConfirmOpen,
+  onDeleteSemesterConfirmOpenChange,
+  onConfirmDeleteSemester,
+  isDeletingSemester,
   onImportStudents,
   onAddScheduleEntry,
   onExportAttendance,
+  onManageDevices,
   onLogout,
 }: CalendarToolbarProps) {
   const selectedSemester = semesters.find((s) => s.id === selectedSemesterId);
@@ -67,16 +76,31 @@ export function CalendarToolbar({
           Pridať semester
         </Button>
 
-        <Button
-          variant="outline"
-          size="icon-sm"
-          onClick={onDeleteSemester}
-          disabled={selectedSemesterId === null}
-          aria-label="Odstrániť semester"
+        <ConfirmationPopover
+          open={deleteSemesterConfirmOpen}
+          onOpenChange={onDeleteSemesterConfirmOpenChange}
           title="Odstrániť semester"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+          description={
+            <>
+              Naozaj chcete odstrániť semester{" "}
+              <strong>{selectedSemester?.name ?? "vybraný semester"}</strong>?
+              Táto akcia sa nedá vrátiť späť.
+            </>
+          }
+          confirmLabel="Odstrániť"
+          confirmingLabel="Odstraňovanie..."
+          onConfirm={onConfirmDeleteSemester}
+          isConfirming={isDeletingSemester}
+          trigger={<Button variant="outline" size="sm" aria-label="Odstrániť semester" title="Odstrániť semester" />}
+          triggerDisabled={selectedSemesterId === null}
+          triggerContent={
+            <>
+              <Trash2 className="mr-1 h-4 w-4" />
+              Odstrániť semester
+            </>
+          }
+          align="start"
+        />
       </div>
 
       {/* Center section */}
@@ -88,11 +112,6 @@ export function CalendarToolbar({
 
       {/* Right section */}
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={onImportStudents}>
-          <Upload className="mr-1 h-4 w-4" />
-          Import študentov
-        </Button>
-
         {selectedSemesterId !== null && (
           <Button variant="outline" size="sm" onClick={onExportAttendance}>
             <FileDown className="mr-1 h-4 w-4" />
@@ -100,9 +119,28 @@ export function CalendarToolbar({
           </Button>
         )}
 
-        <Button size="sm" onClick={onAddScheduleEntry}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onImportStudents}
+          disabled={selectedSemesterId === null}
+        >
+          <Upload className="mr-1 h-4 w-4" />
+          Import študentov
+        </Button>
+
+        <Button
+          size="sm"
+          onClick={onAddScheduleEntry}
+          disabled={selectedSemesterId === null}
+        >
           <Plus className="mr-1 h-4 w-4" />
           Pridať rozvrh. jednotka
+        </Button>
+
+        <Button variant="outline" size="sm" onClick={onManageDevices}>
+          <Cpu className="mr-1 h-4 w-4" />
+          Zariadenia
         </Button>
 
         <Button

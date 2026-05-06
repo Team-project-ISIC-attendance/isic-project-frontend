@@ -525,12 +525,20 @@ export interface components {
             attendance_id: number;
             /** Enrollment Id */
             enrollment_id: number | null;
+            /** Student Identifier */
+            student_identifier?: string | null;
             /** Isic Identifier */
             isic_identifier: string;
+            /** Full Name */
+            full_name?: string | null;
             /** First Name */
             first_name: string | null;
             /** Last Name */
             last_name: string | null;
+            /** Study Identification */
+            study_identification?: string | null;
+            /** Email Is */
+            email_is?: string | null;
             /** Status */
             status: string;
             /** Marked By */
@@ -612,12 +620,20 @@ export interface components {
             enrollment_id: number;
             /** Isic Id */
             isic_id: number;
+            /** Student Identifier */
+            student_identifier?: string | null;
             /** Isic Identifier */
             isic_identifier: string;
+            /** Full Name */
+            full_name?: string | null;
             /** First Name */
             first_name: string | null;
             /** Last Name */
             last_name: string | null;
+            /** Study Identification */
+            study_identification?: string | null;
+            /** Email Is */
+            email_is?: string | null;
             /** Enrolled At */
             enrolled_at: string;
         };
@@ -642,10 +658,20 @@ export interface components {
              */
             id: number;
             /**
+             * Student Identifier
+             * @description Student identifier used for UI display
+             */
+            student_identifier?: string | null;
+            /**
              * Isic Identifier
              * @description ISIC identifier
              */
             isic_identifier: string;
+            /**
+             * Full Name
+             * @description Full student name
+             */
+            full_name?: string | null;
             /**
              * First Name
              * @description First name
@@ -656,6 +682,16 @@ export interface components {
              * @description Last name
              */
             last_name?: string | null;
+            /**
+             * Study Identification
+             * @description Study identification
+             */
+            study_identification?: string | null;
+            /**
+             * Email Is
+             * @description Institutional email
+             */
+            email_is?: string | null;
             /**
              * Created At
              * @description ISIC creation timestamp in ISO format
@@ -736,12 +772,22 @@ export interface components {
         };
         /** OverviewStudent */
         OverviewStudent: {
+            /** Enrollment Id */
+            enrollment_id?: number | null;
+            /** Student Identifier */
+            student_identifier?: string | null;
             /** Isic Identifier */
             isic_identifier: string;
+            /** Full Name */
+            full_name?: string | null;
             /** First Name */
             first_name: string | null;
             /** Last Name */
             last_name: string | null;
+            /** Study Identification */
+            study_identification?: string | null;
+            /** Email Is */
+            email_is?: string | null;
             /** Weeks */
             weeks: components["schemas"]["OverviewStudentWeek"][];
         };

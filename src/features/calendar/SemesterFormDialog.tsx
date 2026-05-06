@@ -1,11 +1,32 @@
-import { useState } from "react";
-import { FolderPlus, X, Minus, Plus, Calendar } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  FolderPlus,
+  X,
+  Minus,
+  Plus,
+} from "lucide-react";
 import type { components } from "@/api/schema";
 import { createSemester } from "@/api/calendar";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  DatePickerField,
+  formatDisplayDateValue,
+  parseDisplayDateValue,
+} from "@/components/ui/date-picker-field";
+import {
+  clampWeekCount,
+  getEndDateFromWeeks,
+  getWeekCountFromRange,
+  parseSemesterDate,
+} from "@/features/calendar/semesterDates";
 
 type SemesterResponse = components["schemas"]["SemesterResponse"];
+const DEFAULT_TOTAL_WEEKS = 13;
+const MIN_DATE = "2000-01-01";
+const MAX_DATE = "2100-12-31";
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
 
 interface SemesterFormDialogProps {
   open: boolean;
@@ -20,38 +41,163 @@ export function SemesterFormDialog({
 }: SemesterFormDialogProps) {
   const [name, setName] = useState("");
   const [startDate, setStartDate] = useState("");
+  const [startDateInput, setStartDateInput] = useState("");
+  const [startDateInputError, setStartDateInputError] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [totalWeeks, setTotalWeeks] = useState(13);
+  const [endDateInput, setEndDateInput] = useState("");
+  const [endDateInputError, setEndDateInputError] = useState("");
+  const [totalWeeks, setTotalWeeks] = useState(DEFAULT_TOTAL_WEEKS);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const hasValidStartDate = startDate !== "";
 
   function resetForm() {
     setName("");
     setStartDate("");
+    setStartDateInput("");
+    setStartDateInputError("");
     setEndDate("");
-    setTotalWeeks(13);
+    setEndDateInput("");
+    setEndDateInputError("");
+    setTotalWeeks(DEFAULT_TOTAL_WEEKS);
     setError("");
   }
+
+  useEffect(() => {
+    if (open) {
+      resetForm();
+    }
+  }, [open]);
 
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen) resetForm();
     onOpenChange(nextOpen);
   }
 
+  function handleStartDateChange(nextStartDate: string | null) {
+    if (nextStartDate === null) {
+      setStartDate("");
+      setEndDate("");
+      setEndDateInput("");
+      setEndDateInputError("");
+      return;
+    }
+
+    setStartDate(nextStartDate);
+    setStartDateInput(nextStartDate ? formatDisplayDateValue(nextStartDate) : "");
+    setStartDateInputError("");
+    setError("");
+
+    if (!nextStartDate) {
+      setEndDate("");
+      setEndDateInput("");
+      setEndDateInputError("");
+      setTotalWeeks(DEFAULT_TOTAL_WEEKS);
+      return;
+    }
+
+    if (endDate) {
+      const nextWeeks = getWeekCountFromRange(nextStartDate, endDate);
+      if (nextWeeks !== null) {
+        setTotalWeeks(nextWeeks);
+        return;
+      }
+    }
+
+    const computedEndDate = getEndDateFromWeeks(nextStartDate, totalWeeks);
+    setEndDate(computedEndDate);
+    setEndDateInput(formatDisplayDateValue(computedEndDate));
+  }
+
+  function handleEndDateChange(nextEndDate: string | null) {
+    if (nextEndDate === null) {
+      setEndDate("");
+      return;
+    }
+
+    setEndDate(nextEndDate);
+    setEndDateInput(nextEndDate ? formatDisplayDateValue(nextEndDate) : "");
+    setEndDateInputError("");
+    setError("");
+
+    if (!startDate || !nextEndDate) return;
+
+    const nextWeeks = getWeekCountFromRange(startDate, nextEndDate);
+    if (nextWeeks !== null) {
+      setTotalWeeks(nextWeeks);
+    }
+  }
+
+  function handleTotalWeeksChange(nextWeeks: number) {
+    const clampedWeeks = clampWeekCount(nextWeeks);
+    setTotalWeeks(clampedWeeks);
+    setError("");
+
+    if (!startDate) return;
+    const computedEndDate = getEndDateFromWeeks(startDate, clampedWeeks);
+    setEndDate(computedEndDate);
+    setEndDateInput(formatDisplayDateValue(computedEndDate));
+  }
+
+  function validateDateYear(value: string, label: string): string | null {
+    const parsedDate = parseSemesterDate(value);
+    if (parsedDate === null) {
+      return `Neplatný dátum pre pole ${label.toLowerCase()}`;
+    }
+
+    const year = parsedDate.getUTCFullYear();
+    if (year < MIN_YEAR || year > MAX_YEAR) {
+      return `${label} musí mať rok medzi ${MIN_YEAR} a ${MAX_YEAR}`;
+    }
+
+    return null;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
 
-    const formData = new FormData(e.currentTarget as HTMLFormElement);
-    const submittedName = String(formData.get("name") ?? "");
-    const submittedStartDate = String(formData.get("start_date") ?? "");
-    const submittedEndDate = String(formData.get("end_date") ?? "");
+    if (startDateInputError) {
+      setError(startDateInputError);
+      return;
+    }
 
-    if (
-      submittedStartDate &&
-      submittedEndDate &&
-      submittedStartDate > submittedEndDate
-    ) {
+    if (endDateInputError) {
+      setError(endDateInputError);
+      return;
+    }
+
+    const parsedStartDateInput = parseDisplayDateValue(startDateInput);
+    if (!startDateInput.trim() || parsedStartDateInput === null) {
+      setError("Začiatok musí byť vo formáte dd/mm/yyyy");
+      return;
+    }
+
+    const parsedEndDateInput = parseDisplayDateValue(endDateInput);
+    if (!endDateInput.trim() || parsedEndDateInput === null) {
+      setError("Koniec musí byť vo formáte dd/mm/yyyy");
+      return;
+    }
+
+    const submittedStartDate = parsedStartDateInput;
+    const submittedEndDate = parsedEndDateInput;
+    const computedWeeks = getWeekCountFromRange(
+      submittedStartDate,
+      submittedEndDate,
+    );
+    const startDateError = validateDateYear(submittedStartDate, "Začiatok");
+    if (startDateError !== null) {
+      setError(startDateError);
+      return;
+    }
+
+    const endDateError = validateDateYear(submittedEndDate, "Koniec");
+    if (endDateError !== null) {
+      setError(endDateError);
+      return;
+    }
+
+    if (computedWeeks === null) {
       setError("Dátum začiatku musí byť pred dátumom konca");
       return;
     }
@@ -60,10 +206,10 @@ export function SemesterFormDialog({
 
     try {
       const semester = await createSemester({
-        name: submittedName,
+        name,
         start_date: submittedStartDate,
         end_date: submittedEndDate,
-        total_weeks: totalWeeks,
+        total_weeks: computedWeeks,
       });
       resetForm();
       onOpenChange(false);
@@ -144,56 +290,32 @@ export function SemesterFormDialog({
               </div>
 
               {/* Date row */}
-              <div className="flex gap-4">
-                {/* Začiatok */}
-                <div className="flex flex-1 flex-col gap-2">
-                  <Label
-                    htmlFor="semester-start"
-                    className="text-sm font-medium text-[#414651]"
-                  >
-                    Začiatok
-                  </Label>
-                  <div className="flex items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
-                    <input
-                      id="semester-start"
-                      name="start_date"
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      onInput={(e) => setStartDate(e.currentTarget.value)}
-                      required
-                      className="h-10 flex-1 appearance-none bg-transparent px-3 py-2 text-sm outline-none [&::-webkit-calendar-picker-indicator]:hidden"
-                    />
-                    <div className="px-3">
-                      <Calendar size={16} className="text-[#737373]" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Koniec */}
-                <div className="flex flex-1 flex-col gap-2">
-                  <Label
-                    htmlFor="semester-end"
-                    className="text-sm font-medium text-[#414651]"
-                  >
-                    Koniec
-                  </Label>
-                  <div className="flex items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
-                    <input
-                      id="semester-end"
-                      name="end_date"
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      onInput={(e) => setEndDate(e.currentTarget.value)}
-                      required
-                      className="h-10 flex-1 appearance-none bg-transparent px-3 py-2 text-sm outline-none [&::-webkit-calendar-picker-indicator]:hidden"
-                    />
-                    <div className="px-3">
-                      <Calendar size={16} className="text-[#737373]" />
-                    </div>
-                  </div>
-                </div>
+              <div className="grid grid-cols-2 gap-3">
+                <DatePickerField
+                  id="semester-start"
+                  label="Začiatok"
+                  value={startDate}
+                  inputValue={startDateInput}
+                  error={startDateInputError}
+                  min={MIN_DATE}
+                  max={MAX_DATE}
+                  onInputValueChange={setStartDateInput}
+                  onDateChange={handleStartDateChange}
+                  onErrorChange={setStartDateInputError}
+                />
+                <DatePickerField
+                  id="semester-end"
+                  label="Koniec"
+                  value={endDate}
+                  inputValue={endDateInput}
+                  error={endDateInputError}
+                  disabled={!hasValidStartDate}
+                  min={startDate || MIN_DATE}
+                  max={MAX_DATE}
+                  onInputValueChange={setEndDateInput}
+                  onDateChange={handleEndDateChange}
+                  onErrorChange={setEndDateInputError}
+                />
               </div>
 
               {/* Počet týždňov stepper */}
@@ -204,8 +326,9 @@ export function SemesterFormDialog({
                 <div className="flex w-[151px] items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
                   <button
                     type="button"
-                    onClick={() => setTotalWeeks(Math.max(1, totalWeeks - 1))}
-                    className="rounded-l-lg border-r border-[#d5d7da] px-3 py-2.5"
+                    onClick={() => handleTotalWeeksChange(totalWeeks - 1)}
+                    disabled={!hasValidStartDate}
+                    className="rounded-l-lg border-r border-[#d5d7da] px-3 py-2.5 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Minus size={20} className="text-[#171717]" />
                   </button>
@@ -214,8 +337,9 @@ export function SemesterFormDialog({
                   </div>
                   <button
                     type="button"
-                    onClick={() => setTotalWeeks(Math.min(52, totalWeeks + 1))}
-                    className="rounded-r-lg px-3 py-2.5"
+                    onClick={() => handleTotalWeeksChange(totalWeeks + 1)}
+                    disabled={!hasValidStartDate}
+                    className="rounded-r-lg px-3 py-2.5 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Plus size={20} className="text-[#171717]" />
                   </button>
@@ -227,11 +351,18 @@ export function SemesterFormDialog({
             </div>
 
             {/* Footer */}
-            <div className="shrink-0 bg-white flex justify-end px-6 pt-8 pb-6">
+            <div className="shrink-0 bg-white flex gap-3 px-6 pb-6 pt-8">
+              <button
+                type="button"
+                onClick={() => handleOpenChange(false)}
+                className="flex-1 rounded-lg border border-[#d4d4d4] bg-white py-2.5 text-base font-semibold text-[#404040] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] hover:bg-[#fafafa]"
+              >
+                Zrušiť
+              </button>
               <button
                 type="submit"
                 disabled={submitting}
-                className="rounded-lg bg-[#1d4ed8] px-[18px] py-2.5 text-base font-semibold text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] hover:bg-[#1a44c2] disabled:opacity-50"
+                className="flex-1 rounded-lg bg-[#1d4ed8] py-2.5 text-base font-semibold text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] hover:bg-[#1a44c2] disabled:opacity-50"
               >
                 {submitting ? "Vytváranie..." : "Vytvoriť"}
               </button>

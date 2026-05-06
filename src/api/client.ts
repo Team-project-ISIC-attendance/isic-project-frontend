@@ -1,7 +1,25 @@
 import type { components } from "./schema";
 
 type TokenResponse = components["schemas"]["TokenResponse"];
-type UserResponse = components["schemas"]["UserResponse"];
+export type AuthUserResponse = components["schemas"]["UserResponse"] & {
+  isic_identifier: string | null;
+};
+export interface RegisterTeacherInput {
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+  isic_identifier: string;
+  role?: "teacher";
+}
+
+export interface TeacherUpdateInput {
+  email?: string;
+  password?: string;
+  first_name?: string;
+  last_name?: string;
+  isic_identifier?: string | null;
+}
 
 const API_URL = import.meta.env.VITE_API_URL as string;
 
@@ -39,6 +57,8 @@ export async function apiFetch<T>(
     headers,
   });
 
+  const contentType = response.headers.get("content-type") ?? "";
+
   if (response.status === 401) {
     clearToken();
     window.location.href = "/login";
@@ -46,11 +66,25 @@ export async function apiFetch<T>(
   }
 
   if (!response.ok) {
+    if (contentType.includes("application/json")) {
+      const errorBody = (await response.json()) as { detail?: string };
+      throw new Error(errorBody.detail || `HTTP ${response.status}`);
+    }
+
     const errorBody = await response.text();
     throw new Error(errorBody || `HTTP ${response.status}`);
   }
 
-  return response.json() as Promise<T>;
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  if (contentType.includes("application/json")) {
+    return response.json() as Promise<T>;
+  }
+
+  const text = await response.text();
+  return (text ? (JSON.parse(text) as T) : undefined) as T;
 }
 
 export async function login(
@@ -72,6 +106,47 @@ export async function login(
   return response.json() as Promise<TokenResponse>;
 }
 
-export async function getMe(): Promise<UserResponse> {
-  return apiFetch<UserResponse>("/auth/me");
+export async function getMe(): Promise<AuthUserResponse> {
+  return apiFetch<AuthUserResponse>("/auth/me");
+}
+
+export async function updateMyIsic(
+  isicIdentifier: string | null,
+): Promise<AuthUserResponse> {
+  return apiFetch<AuthUserResponse>("/auth/me/isic", {
+    method: "PATCH",
+    body: JSON.stringify({ isic_identifier: isicIdentifier }),
+  });
+}
+
+export async function registerTeacher(
+  payload: RegisterTeacherInput,
+): Promise<AuthUserResponse> {
+  return apiFetch<AuthUserResponse>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({
+      ...payload,
+      role: payload.role ?? "teacher",
+    }),
+  });
+}
+
+export async function listTeachers(): Promise<AuthUserResponse[]> {
+  return apiFetch<AuthUserResponse[]>("/auth/teachers");
+}
+
+export async function updateTeacher(
+  userId: number,
+  payload: TeacherUpdateInput,
+): Promise<AuthUserResponse> {
+  return apiFetch<AuthUserResponse>(`/auth/teachers/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteTeacher(userId: number): Promise<void> {
+  return apiFetch<void>(`/auth/teachers/${userId}`, {
+    method: "DELETE",
+  });
 }

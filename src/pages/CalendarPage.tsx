@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import type { components } from "@/api/schema";
 import {
   fetchSemesters,
@@ -8,6 +9,7 @@ import {
   fetchSubjects,
   updateWeekNote,
   deleteSemester,
+  deleteScheduleEntry,
 } from "@/api/calendar";
 import { CalendarToolbar } from "@/features/calendar/CalendarToolbar";
 import { WeekSidebar } from "@/features/calendar/WeekSidebar";
@@ -26,8 +28,15 @@ type WeekResponse = components["schemas"]["WeekResponse"];
 type WeekLessonResponse = components["schemas"]["WeekLessonResponse"];
 type SubjectResponse = components["schemas"]["SubjectResponse"];
 
+interface ScheduleEntryDraft {
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+}
+
 export function CalendarPage() {
   const { logout } = useAuth();
+  const navigate = useNavigate();
   const [semesters, setSemesters] = useState<SemesterResponse[]>([]);
   const [selectedSemesterId, setSelectedSemesterId] = useState<number | null>(
     null,
@@ -47,6 +56,7 @@ export function CalendarPage() {
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importDefaultSubjectId, setImportDefaultSubjectId] = useState<number | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [overviewEntryId, setOverviewEntryId] = useState<number | null>(null);
@@ -54,6 +64,12 @@ export function CalendarPage() {
     useState<ScheduleEntryResponse | null>(null);
   const [editingEntry, setEditingEntry] =
     useState<ScheduleEntryResponse | null>(null);
+  const [createEntryDraft, setCreateEntryDraft] =
+    useState<ScheduleEntryDraft | null>(null);
+  const selectedSemester =
+    semesters.find((semester) => semester.id === selectedSemesterId) ?? null;
+  const [deleteSemesterOpen, setDeleteSemesterOpen] = useState(false);
+  const [isDeletingSemester, setIsDeletingSemester] = useState(false);
 
   // Build lesson map: schedule_entry_id → lesson_id
   const lessonMap = new Map<number, number>();
@@ -63,9 +79,12 @@ export function CalendarPage() {
 
   // Active week display
   const activeWeekData = weeks.find((w) => w.week_number === activeWeek);
-  const activeWeekDisplay = activeWeekData
-    ? `Týždeň ${activeWeekData.week_number}, ${activeWeekData.date_range}`
-    : `Týždeň ${activeWeek}`;
+  const activeWeekDisplay =
+    selectedSemester === null
+      ? "Žiadny semester"
+      : activeWeekData
+        ? `Týždeň ${activeWeekData.week_number}, ${activeWeekData.date_range}`
+        : `Týždeň ${activeWeek}`;
 
   // Load semester data
   const loadSemesterData = useCallback(
@@ -136,39 +155,41 @@ export function CalendarPage() {
     await loadSemesterData(semester.id, 1);
   }
 
-  async function handleDeleteSemester() {
+  async function confirmDeleteSemester() {
     if (selectedSemesterId === null) return;
-    const semester = semesters.find((item) => item.id === selectedSemesterId);
-    const semesterName = semester?.name ?? "vybraný semester";
-    if (!confirm(`Naozaj chcete odstrániť semester ${semesterName}?`)) return;
+    setIsDeletingSemester(true);
+    try {
+      await deleteSemester(selectedSemesterId);
+      setDeleteSemesterOpen(false);
+      const updatedSemesters = await fetchSemesters();
+      setSemesters(updatedSemesters);
+      setEventPanelOpen(false);
+      setOverviewOpen(false);
+      setSelectedLessonId(null);
+      setSelectedSubjectId(null);
+      setSelectedEntryId(null);
+      setSelectedEntry(null);
+      setActiveWeek(1);
 
-    await deleteSemester(selectedSemesterId);
-    const updatedSemesters = await fetchSemesters();
-    setSemesters(updatedSemesters);
-    setEventPanelOpen(false);
-    setOverviewOpen(false);
-    setSelectedLessonId(null);
-    setSelectedSubjectId(null);
-    setSelectedEntryId(null);
-    setSelectedEntry(null);
-    setActiveWeek(1);
+      const nextSemester = updatedSemesters[0] ?? null;
+      if (nextSemester === null) {
+        setSelectedSemesterId(null);
+        setSchedule([]);
+        setWeeks([]);
+        setWeekLessons([]);
+        setSubjects(await fetchSubjects());
+        return;
+      }
 
-    const nextSemester = updatedSemesters[0] ?? null;
-    if (nextSemester === null) {
-      setSelectedSemesterId(null);
-      setSchedule([]);
-      setWeeks([]);
-      setWeekLessons([]);
-      setSubjects(await fetchSubjects());
-      return;
+      setSelectedSemesterId(nextSemester.id);
+      await loadSemesterData(nextSemester.id, 1);
+    } finally {
+      setIsDeletingSemester(false);
     }
-
-    setSelectedSemesterId(nextSemester.id);
-    await loadSemesterData(nextSemester.id, 1);
   }
 
   // Schedule entry created
-  async function handleScheduleEntryCreated() {
+  async function handleScheduleEntryCreated(createdSubjectId?: number) {
     if (selectedSemesterId === null) return;
     const [scheduleData, lessonsData, subjectsData] = await Promise.all([
       fetchSchedule(selectedSemesterId),
@@ -178,25 +199,52 @@ export function CalendarPage() {
     setSchedule(scheduleData);
     setWeekLessons(lessonsData);
     setSubjects(subjectsData);
+    if (createdSubjectId !== undefined) {
+      setSelectedSubjectId(createdSubjectId);
+      setImportDefaultSubjectId(createdSubjectId);
+      setImportModalOpen(true);
+    }
   }
 
   async function handleScheduleEntrySaved() {
     await handleScheduleEntryCreated();
     setEditingEntry(null);
+    setCreateEntryDraft(null);
   }
 
   function handleEditEntry(entry: ScheduleEntryResponse | null) {
     if (entry === null) return;
     setEventPanelOpen(false);
     setOverviewOpen(false);
+    setCreateEntryDraft(null);
     setEditingEntry(entry);
     setScheduleEntryFormOpen(true);
+  }
+
+  async function handleDeleteEntry(entry: ScheduleEntryResponse) {
+    if (selectedSemesterId === null) {
+      return;
+    }
+
+    await deleteScheduleEntry(selectedSemesterId, entry.id);
+
+    if (selectedEntryId === entry.id) {
+      setEventPanelOpen(false);
+      setOverviewOpen(false);
+      setSelectedLessonId(null);
+      setSelectedSubjectId(null);
+      setSelectedEntryId(null);
+      setSelectedEntry(null);
+    }
+
+    await handleScheduleEntryCreated();
   }
 
   function handleScheduleDialogOpenChange(open: boolean) {
     setScheduleEntryFormOpen(open);
     if (!open) {
       setEditingEntry(null);
+      setCreateEntryDraft(null);
     }
   }
 
@@ -216,13 +264,18 @@ export function CalendarPage() {
         onSemesterChange={handleSemesterChange}
         activeWeekDisplay={activeWeekDisplay}
         onCreateSemester={() => setSemesterFormOpen(true)}
-        onDeleteSemester={handleDeleteSemester}
+        deleteSemesterConfirmOpen={deleteSemesterOpen}
+        onDeleteSemesterConfirmOpenChange={setDeleteSemesterOpen}
+        onConfirmDeleteSemester={() => void confirmDeleteSemester()}
+        isDeletingSemester={isDeletingSemester}
         onImportStudents={() => setImportModalOpen(true)}
         onAddScheduleEntry={() => {
+          setCreateEntryDraft(null);
           setEditingEntry(null);
           setScheduleEntryFormOpen(true);
         }}
         onExportAttendance={() => setExportModalOpen(true)}
+        onManageDevices={() => navigate("/devices")}
         onLogout={logout}
       />
       <div className="flex flex-1 overflow-hidden">
@@ -234,7 +287,14 @@ export function CalendarPage() {
         />
         <CalendarGrid
           scheduleEntries={schedule}
-          lessonMap={lessonMap}
+          weekLessons={weekLessons}
+          semester={selectedSemester}
+          activeWeek={activeWeek}
+          onSlotClick={(draft) => {
+            setCreateEntryDraft(draft);
+            setEditingEntry(null);
+            setScheduleEntryFormOpen(true);
+          }}
           onBlockClick={(lessonId, entry) => {
             setSelectedLessonId(lessonId);
             setSelectedSubjectId(entry.subject_id);
@@ -242,6 +302,8 @@ export function CalendarPage() {
             setSelectedEntry(entry);
             setEventPanelOpen(true);
           }}
+          onEntryEdit={handleEditEntry}
+          onEntryDelete={(entry) => handleDeleteEntry(entry)}
         />
       </div>
 
@@ -253,10 +315,16 @@ export function CalendarPage() {
 
       {selectedSemesterId !== null && scheduleEntryFormOpen && (
         <ScheduleEntryFormDialog
-          key={editingEntry ? `edit-${editingEntry.id}` : "create"}
+          key={
+            editingEntry
+              ? `edit-${editingEntry.id}`
+              : `create-${createEntryDraft?.dayOfWeek ?? "default"}-${createEntryDraft?.startTime ?? "08:00"}-${createEntryDraft?.endTime ?? "10:00"}`
+          }
           open={scheduleEntryFormOpen}
           onOpenChange={handleScheduleDialogOpenChange}
           semesterId={selectedSemesterId}
+          scheduleEntries={schedule}
+          initialDraft={createEntryDraft}
           mode={editingEntry ? "edit" : "create"}
           entry={editingEntry}
           onCreated={handleScheduleEntryCreated}
@@ -305,8 +373,14 @@ export function CalendarPage() {
 
       <ImportStudentsModal
         open={importModalOpen}
-        onOpenChange={setImportModalOpen}
+        onOpenChange={(open) => {
+          setImportModalOpen(open);
+          if (!open) {
+            setImportDefaultSubjectId(null);
+          }
+        }}
         subjects={subjects}
+        defaultSubjectId={importDefaultSubjectId ?? selectedSubjectId}
         onImported={async () => {
           if (selectedSemesterId !== null) {
             await loadSemesterData(selectedSemesterId, activeWeek);

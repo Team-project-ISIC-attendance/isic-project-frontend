@@ -5,12 +5,16 @@ import {
   Clock,
   Minus,
   Plus,
-  Calendar,
 } from "lucide-react";
+import {
+  DatePickerField,
+  formatDisplayDateValue,
+} from "@/components/ui/date-picker-field";
 import type { components } from "@/api/schema";
 import {
   createScheduleEntry,
   createSubject,
+  deleteScheduleEntry,
   updateScheduleEntry,
 } from "@/api/calendar";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -43,16 +47,31 @@ const DAY_LABELS = [
 ] as const;
 
 const DEFAULT_RECURRENCE_INTERVAL = 1;
+const DEFAULT_DURATION_MINUTES = 110; // 1h 50min
+
+function addMinutes(time: string, minutes: number): string {
+  const [h, m] = time.split(":").map(Number);
+  const total = h * 60 + m + minutes;
+  return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
 
 type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
+
+interface ScheduleEntryDraft {
+  dayOfWeek?: number;
+  startTime?: string;
+  endTime?: string;
+}
 
 interface ScheduleEntryFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   semesterId: number;
+  scheduleEntries?: ScheduleEntryResponse[];
+  initialDraft?: ScheduleEntryDraft | null;
   mode?: "create" | "edit";
   entry?: ScheduleEntryResponse | null;
-  onCreated: () => void | Promise<void>;
+  onCreated: (createdSubjectId?: number) => void | Promise<void>;
   onUpdated?: () => void | Promise<void>;
 }
 
@@ -67,10 +86,57 @@ function createAutoSubjectCode(subjectName: string) {
   return `${prefix}-${suffix}`;
 }
 
+function normalizeRoom(room: string | null | undefined) {
+  return room ?? null;
+}
+
+function getRecurringEditGroup(
+  entry: ScheduleEntryResponse | null,
+  scheduleEntries: ScheduleEntryResponse[],
+) {
+  if (entry === null || entry.is_one_time) {
+    return entry ? [entry] : [];
+  }
+
+  const matchingEntries = scheduleEntries
+    .filter((candidate) => {
+      return (
+        candidate.subject_id === entry.subject_id &&
+        candidate.start_time === entry.start_time &&
+        candidate.end_time === entry.end_time &&
+        normalizeRoom(candidate.room) === normalizeRoom(entry.room) &&
+        candidate.lesson_type === entry.lesson_type &&
+        candidate.is_one_time === entry.is_one_time &&
+        candidate.recurrence_interval === entry.recurrence_interval &&
+        candidate.end_date === entry.end_date
+      );
+    })
+    .sort((left, right) => left.day_of_week - right.day_of_week || left.id - right.id);
+  return matchingEntries.length > 0 ? matchingEntries : [entry];
+}
+
+function getInitialSelectedDays(
+  entry: ScheduleEntryResponse | null,
+  scheduleEntries: ScheduleEntryResponse[],
+  initialDraft: ScheduleEntryDraft | null,
+) {
+  if (entry === null) {
+    return initialDraft?.dayOfWeek ? new Set([initialDraft.dayOfWeek]) : new Set<number>();
+  }
+  if (entry.is_one_time) {
+    return new Set([entry.day_of_week]);
+  }
+
+  const recurringGroup = getRecurringEditGroup(entry, scheduleEntries);
+  return new Set(recurringGroup.map((groupEntry) => groupEntry.day_of_week));
+}
+
 export function ScheduleEntryFormDialog({
   open,
   onOpenChange,
   semesterId,
+  scheduleEntries = [],
+  initialDraft = null,
   mode = "create",
   entry = null,
   onCreated,
@@ -81,15 +147,22 @@ export function ScheduleEntryFormDialog({
     entry?.is_one_time ? "one-time" : "recurring",
   );
   const [name, setName] = useState(entry?.subject_name ?? "");
-  const [startTime, setStartTime] = useState(entry?.start_time ?? "08:00");
-  const [endTime, setEndTime] = useState(entry?.end_time ?? "10:00");
+  const [startTime, setStartTime] = useState(
+    entry?.start_time ?? initialDraft?.startTime ?? "08:00",
+  );
+  const [endTime, setEndTime] = useState(() => {
+    if (entry?.end_time) return entry.end_time;
+    if (initialDraft?.endTime) return initialDraft.endTime;
+    const start = initialDraft?.startTime ?? "08:00";
+    return addMinutes(start, DEFAULT_DURATION_MINUTES);
+  });
   const [lessonType, setLessonType] = useState(entry?.lesson_type ?? "prednaska");
   const [room, setRoom] = useState(entry?.room ?? "");
   const [color, setColor] = useState<string>(
     entry?.subject_color || COLOR_PRESETS[0],
   );
   const [selectedDays, setSelectedDays] = useState<Set<number>>(
-    entry ? new Set([entry.day_of_week]) : new Set(),
+    getInitialSelectedDays(entry, scheduleEntries, initialDraft),
   );
   const [recurrenceInterval, setRecurrenceInterval] = useState(
     entry?.recurrence_interval ?? DEFAULT_RECURRENCE_INTERVAL,
@@ -98,6 +171,10 @@ export function ScheduleEntryFormDialog({
     entry?.end_date ? "date" : "semester",
   );
   const [endDate, setEndDate] = useState(entry?.end_date ?? "");
+  const [endDateInput, setEndDateInput] = useState(
+    entry?.end_date ? formatDisplayDateValue(entry.end_date) : "",
+  );
+  const [endDateInputError, setEndDateInputError] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -113,6 +190,8 @@ export function ScheduleEntryFormDialog({
     setRecurrenceInterval(DEFAULT_RECURRENCE_INTERVAL);
     setEndOption("semester");
     setEndDate("");
+    setEndDateInput("");
+    setEndDateInputError("");
     setError("");
   }
 
@@ -132,7 +211,7 @@ export function ScheduleEntryFormDialog({
   }
 
   function toggleDay(day: number) {
-    if (isEditing || activeTab === "one-time") {
+    if (activeTab === "one-time") {
       setSelectedDays(new Set([day]));
       return;
     }
@@ -168,31 +247,114 @@ export function ScheduleEntryFormDialog({
       setError("Vyberte deň");
       return;
     }
-    if (isEditing && activeTab === "recurring" && selectedDays.size !== 1) {
-      setError("Pri úprave vyberte jeden deň");
-      return;
-    }
-
     setSubmitting(true);
 
     try {
       const isOneTime = activeTab === "one-time";
       const computedEndDate = endOption === "date" && endDate ? endDate : null;
+      const buildUpdatePayload = (dayOfWeek: number) => ({
+        subject_name: name.trim(),
+        subject_color: color,
+        day_of_week: dayOfWeek,
+        start_time: startTime,
+        end_time: endTime,
+        room: room || null,
+        lesson_type: lessonType,
+        is_one_time: isOneTime,
+        recurrence_interval: isOneTime ? 1 : recurrenceInterval,
+        end_date: computedEndDate,
+      });
 
       if (isEditing && entry !== null) {
-        const selectedDay = Array.from(selectedDays)[0] ?? entry.day_of_week;
-        await updateScheduleEntry(semesterId, entry.id, {
-          subject_name: name.trim(),
-          subject_color: color,
-          day_of_week: selectedDay,
-          start_time: startTime,
-          end_time: endTime,
-          room: room || null,
-          lesson_type: lessonType,
-          is_one_time: isOneTime,
-          recurrence_interval: isOneTime ? 1 : recurrenceInterval,
-          end_date: computedEndDate,
-        });
+        const selectedDayList = Array.from(selectedDays).sort((left, right) => left - right);
+        const recurringGroup = getRecurringEditGroup(entry, scheduleEntries);
+
+        if (isOneTime) {
+          const selectedDay = selectedDayList[0] ?? entry.day_of_week;
+          await updateScheduleEntry(
+            semesterId,
+            entry.id,
+            buildUpdatePayload(selectedDay),
+          );
+
+          for (const groupEntry of recurringGroup) {
+            if (groupEntry.id !== entry.id) {
+              await deleteScheduleEntry(semesterId, groupEntry.id);
+            }
+          }
+        } else {
+          const existingEntriesByDay = new Map<number, ScheduleEntryResponse[]>();
+          for (const groupEntry of recurringGroup) {
+            const list = existingEntriesByDay.get(groupEntry.day_of_week) ?? [];
+            list.push(groupEntry);
+            existingEntriesByDay.set(groupEntry.day_of_week, list);
+          }
+
+          const assignedEntryIds = new Set<number>();
+          const reusableEntries = recurringGroup.filter(
+            (groupEntry) => !selectedDayList.includes(groupEntry.day_of_week),
+          );
+          const assignments: Array<{
+            dayOfWeek: number;
+            entryToReuse: ScheduleEntryResponse | null;
+          }> = [];
+
+          for (const dayOfWeek of selectedDayList) {
+            const exactMatch = (existingEntriesByDay.get(dayOfWeek) ?? []).find(
+              (groupEntry) => !assignedEntryIds.has(groupEntry.id),
+            );
+            if (exactMatch) {
+              assignedEntryIds.add(exactMatch.id);
+              assignments.push({ dayOfWeek, entryToReuse: exactMatch });
+              continue;
+            }
+
+            const reusableEntry = reusableEntries.find(
+              (groupEntry) => !assignedEntryIds.has(groupEntry.id),
+            );
+            if (reusableEntry) {
+              assignedEntryIds.add(reusableEntry.id);
+              assignments.push({ dayOfWeek, entryToReuse: reusableEntry });
+              continue;
+            }
+
+            assignments.push({ dayOfWeek, entryToReuse: null });
+          }
+
+          for (const assignment of assignments) {
+            if (assignment.entryToReuse === null) {
+              continue;
+            }
+            await updateScheduleEntry(
+              semesterId,
+              assignment.entryToReuse.id,
+              buildUpdatePayload(assignment.dayOfWeek),
+            );
+          }
+
+          for (const assignment of assignments) {
+            if (assignment.entryToReuse !== null) {
+              continue;
+            }
+            await createScheduleEntry(semesterId, {
+              subject_id: entry.subject_id,
+              day_of_week: assignment.dayOfWeek,
+              start_time: startTime,
+              end_time: endTime,
+              room: room || null,
+              lesson_type: lessonType,
+              is_one_time: false,
+              recurrence_interval: recurrenceInterval,
+              end_date: computedEndDate,
+            });
+          }
+
+          for (const groupEntry of recurringGroup) {
+            if (!assignedEntryIds.has(groupEntry.id)) {
+              await deleteScheduleEntry(semesterId, groupEntry.id);
+            }
+          }
+        }
 
         resetForm();
         onOpenChange(false);
@@ -242,7 +404,7 @@ export function ScheduleEntryFormDialog({
 
       resetForm();
       onOpenChange(false);
-      await onCreated();
+      await onCreated(subject.id);
     } catch (err) {
       const message =
         err instanceof Error
@@ -385,7 +547,10 @@ export function ScheduleEntryFormDialog({
                       if (val !== null) setLessonType(val);
                     }}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger
+                      className="w-full rounded-lg border border-[#d5d7da] bg-white px-3 py-2 text-sm shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]"
+                      style={{ height: 40 }}
+                    >
                       <SelectValue>
                         {{
                           prednaska: "Prednáška",
@@ -564,48 +729,50 @@ export function ScheduleEntryFormDialog({
                       </button>
                     </label>
                     {endOption === "date" && (
-                      <div className="flex flex-1 items-center rounded-lg border border-[#d5d7da] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
-                        <input
-                          type="date"
+                      <div className="flex-1">
+                        <DatePickerField
+                          id="entry-end-date"
+                          label=""
                           value={endDate}
-                          onChange={(e) => setEndDate(e.target.value)}
-                          className="h-10 flex-1 appearance-none bg-transparent px-3 py-2 text-sm outline-none [&::-webkit-calendar-picker-indicator]:hidden"
+                          inputValue={endDateInput}
+                          error={endDateInputError}
+                          onInputValueChange={setEndDateInput}
+                          onDateChange={(val) => setEndDate(val ?? "")}
+                          onErrorChange={setEndDateInputError}
                         />
-                        <div className="px-3">
-                          <Calendar size={16} className="text-[#737373]" />
-                        </div>
                       </div>
                     )}
                   </div>
                 </div>
               )}
 
-              {/* Error */}
-              {error && <p className="text-sm text-danger">{error}</p>}
             </div>
 
             {/* Footer */}
-            <div className="shrink-0 bg-white flex gap-3 px-6 pb-6 pt-8">
-              <button
-                type="button"
-                onClick={() => handleOpenChange(false)}
-                className="flex-1 rounded-lg border border-[#d4d4d4] bg-white py-2.5 text-base font-semibold text-[#404040] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] hover:bg-[#fafafa]"
-              >
-                Zrušiť
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="flex-1 rounded-lg bg-[#1d4ed8] py-2.5 text-base font-semibold text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] hover:bg-[#1a44c2] disabled:opacity-50"
-              >
-                {submitting
-                  ? isEditing
-                    ? "Ukladanie..."
-                    : "Vytváranie..."
-                  : isEditing
-                    ? "Uložiť zmeny"
-                    : "Vytvoriť"}
-              </button>
+            <div className="shrink-0 bg-white flex flex-col gap-3 px-6 pb-6 pt-4">
+              {error && <p className="text-sm text-danger">{error}</p>}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleOpenChange(false)}
+                  className="flex-1 rounded-lg border border-[#d4d4d4] bg-white py-2.5 text-base font-semibold text-[#404040] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] hover:bg-[#fafafa]"
+                >
+                  Zrušiť
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 rounded-lg bg-[#1d4ed8] py-2.5 text-base font-semibold text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] hover:bg-[#1a44c2] disabled:opacity-50"
+                >
+                  {submitting
+                    ? isEditing
+                      ? "Ukladanie..."
+                      : "Vytváranie..."
+                    : isEditing
+                      ? "Uložiť zmeny"
+                      : "Vytvoriť"}
+                </button>
+              </div>
             </div>
           </form>
         </div>

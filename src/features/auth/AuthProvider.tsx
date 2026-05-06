@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import type { components } from "@/api/schema";
 import * as api from "@/api/client";
+import type { AuthUserResponse } from "@/api/client";
 import { AuthContext } from "./AuthContext";
 
-type UserResponse = components["schemas"]["UserResponse"];
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserResponse | null>(null);
+  const [user, setUser] = useState<AuthUserResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
+
+  const refreshUser = useCallback(async () => {
+    const me = await api.getMe();
+    setUser(me);
+  }, []);
 
   useEffect(() => {
     async function validateToken() {
@@ -20,8 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const me = await api.getMe();
-        setUser(me);
+        await refreshUser();
       } catch {
         api.clearToken();
       } finally {
@@ -30,15 +32,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     validateToken();
-  }, []);
+  }, [refreshUser]);
 
   const login = useCallback(
     async (email: string, password: string) => {
       const tokenResponse = await api.login(email, password);
       api.setToken(tokenResponse.access_token);
-      const me = await api.getMe();
-      setUser(me);
-      navigate("/");
+      const userData = await api.getMe();
+      setUser(userData);
+      navigate(userData.role === "admin" ? "/admin" : "/");
     },
     [navigate],
   );
@@ -50,7 +52,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [navigate]);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider
+      value={{ user, isLoading, login, logout, refreshUser }}
+    >
       {children}
     </AuthContext.Provider>
   );

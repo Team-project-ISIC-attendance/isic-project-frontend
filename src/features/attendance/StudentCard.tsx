@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { MoreVertical } from "lucide-react";
 import type { components } from "@/api/schema";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ConfirmationPopover } from "@/components/ui/confirmation-popover";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -8,6 +10,12 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { StatusBadge } from "./StatusBadge";
+import {
+  getStudentAdditionalInfo,
+  getStudentAvatarLabel,
+  getStudentDisplayId,
+  getStudentMeta,
+} from "./studentDisplay";
 
 type AttendanceStudentEntry = components["schemas"]["AttendanceStudentEntry"];
 
@@ -28,35 +36,35 @@ export function StudentCard({
   index,
   justScanned,
 }: StudentCardProps) {
-  const initials =
-    (student.first_name?.[0] ?? "") + (student.last_name?.[0] ?? "");
-  const fullName = [student.first_name, student.last_name]
-    .filter(Boolean)
-    .join(" ");
+  const displayId = getStudentDisplayId(student);
+  const meta = getStudentMeta(student);
+  const additionalInfo = getStudentAdditionalInfo(student);
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
 
   return (
     <div
-      className={`flex h-[72px] items-center justify-between border-b border-[rgba(229,229,229,0.9)] px-[24px] py-[16px] ${index % 2 === 0 ? "bg-white" : "bg-[#fafafa]"}`}
+      className={`flex min-h-[84px] items-start justify-between gap-3 border-b border-[rgba(229,229,229,0.9)] px-5 py-4 ${index % 2 === 0 ? "bg-white" : "bg-[#fafafa]"}`}
       style={{
         animation: justScanned ? "scan-highlight 1.5s ease-out" : undefined,
       }}
     >
-      <div className="flex items-center gap-3">
-        <Avatar>
+      <div className="flex min-w-0 flex-1 items-start gap-3 pr-2">
+        <Avatar className="mt-0.5 shrink-0">
           <AvatarFallback className="bg-[#eff6ff] text-xs font-medium text-gray-600">
-            {initials}
+            {getStudentAvatarLabel(student)}
           </AvatarFallback>
         </Avatar>
-        <div className="flex flex-col">
-          <span className="font-body text-sm font-medium text-[#3f3f3f]">
-            {fullName}
+        <div
+          className="flex min-w-0 flex-col gap-1"
+          title={additionalInfo.join("\n")}
+        >
+          <span className="font-body text-[13px] leading-5 font-medium text-[#3f3f3f]">
+            {displayId}
           </span>
-          <p className="text-xs text-[#525252]">
-            ID: {student.isic_identifier}
-          </p>
+          {meta && <p className="text-[11px] leading-4 text-[#525252]">{meta}</p>}
         </div>
       </div>
-      <div className="flex items-center gap-5">
+      <div className="flex shrink-0 items-start gap-3 pt-1">
         <StatusBadge
           status={student.status}
           onStatusChange={(status) =>
@@ -75,12 +83,35 @@ export function StudentCard({
               >
                 Presunúť
               </DropdownMenuItem>
-              <DropdownMenuItem
-                className="cursor-pointer text-sm text-[#dc2626]"
-                onClick={() => onRemove(student)}
-              >
-                Odstrániť
-              </DropdownMenuItem>
+              <ConfirmationPopover
+                open={removeConfirmOpen}
+                onOpenChange={setRemoveConfirmOpen}
+                title="Odstrániť študenta"
+                description={
+                  <>
+                    Naozaj chcete odstrániť študenta{" "}
+                    <strong>{displayId}</strong> z predmetu? Táto akcia sa nedá
+                    vrátiť späť.
+                  </>
+                }
+                confirmLabel="Odstrániť"
+                onConfirm={() => {
+                  setRemoveConfirmOpen(false);
+                  void onRemove(student);
+                }}
+                trigger={
+                  <DropdownMenuItem
+                    closeOnClick={false}
+                    variant="destructive"
+                    className="cursor-pointer text-sm"
+                  />
+                }
+                triggerContent="Odstrániť"
+                triggerNativeButton={false}
+                triggerDisabled={student.enrollment_id === null}
+                side="left"
+                align="start"
+              />
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

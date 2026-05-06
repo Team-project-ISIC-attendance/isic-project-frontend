@@ -8,13 +8,17 @@ import {
   Minimize2,
   ChevronDown,
   MoreHorizontal,
+  Trash2,
 } from "lucide-react";
 import type { components } from "@/api/schema";
 import {
   fetchScheduleEntryOverview,
   updateAttendanceStatus,
   downloadStudentsExport,
+  deleteEnrollment,
 } from "@/api/attendance";
+import { deleteSubject } from "@/api/calendar";
+import { ConfirmationPopover } from "@/components/ui/confirmation-popover";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import {
   DropdownMenu,
@@ -22,7 +26,20 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { FilterModal } from "./FilterModal";
+import { MoveStudentModal } from "./MoveStudentModal";
+import {
+  getStudentAvatarLabel,
+  getStudentDisplayId,
+  getStudentMeta,
+  matchesStudentQuery,
+} from "./studentDisplay";
 
 type OverviewResponse = components["schemas"]["OverviewResponse"];
 type OverviewStudent = components["schemas"]["OverviewStudent"];
@@ -53,12 +70,6 @@ interface SubjectOverviewProps {
   onClose: () => void;
   onMinimize: () => void;
   onEdit?: () => void;
-}
-
-function getInitials(firstName: string | null, lastName: string | null): string {
-  const f = firstName?.[0] ?? "";
-  const l = lastName?.[0] ?? "";
-  return (f + l).toUpperCase() || "?";
 }
 
 function StatusBadgeCell({
@@ -124,6 +135,13 @@ export function SubjectOverview({
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [optimistic, setOptimistic] = useState<Map<string, string>>(new Map());
+  const [selectedStudent, setSelectedStudent] = useState<OverviewStudent | null>(null);
+  const [deleteSubjectConfirmOpen, setDeleteSubjectConfirmOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [removeStudentTargetKey, setRemoveStudentTargetKey] = useState<string | null>(null);
+  const [isRemovingStudent, setIsRemovingStudent] = useState(false);
+  const [moveStudent, setMoveStudent] = useState<OverviewStudent | null>(null);
+  const [moveStudentOpen, setMoveStudentOpen] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -142,6 +160,20 @@ export function SubjectOverview({
     load();
   }, [subjectId, entryId, semesterId]);
 
+  async function handleDeleteSubject() {
+    try {
+      setIsDeleting(true);
+      await deleteSubject(subjectId);
+      setDeleteSubjectConfirmOpen(false);
+      onClose();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Chyba pri mazaní";
+      setError(message);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   function handleStatusChange(attendanceId: number, newStatus: string) {
     const key = String(attendanceId);
     setOptimistic((prev) => new Map(prev).set(key, newStatus));
@@ -157,6 +189,49 @@ export function SubjectOverview({
 
   function handleExport() {
     downloadStudentsExport(subjectId, "csv");
+  }
+
+  function getRemoveStudentKey(student: OverviewStudent) {
+    return student.enrollment_id !== null
+      ? `enrollment-${student.enrollment_id}`
+      : `isic-${student.isic_identifier}`;
+  }
+
+  async function handleRemoveStudent(student: OverviewStudent) {
+    if (!student.enrollment_id) return;
+    setIsRemovingStudent(true);
+    try {
+      await deleteEnrollment(subjectId, student.enrollment_id);
+      setRemoveStudentTargetKey(null);
+      if (
+        selectedStudent !== null &&
+        getRemoveStudentKey(selectedStudent) === getRemoveStudentKey(student)
+      ) {
+        setSelectedStudent(null);
+      }
+      const result = await fetchScheduleEntryOverview(subjectId, entryId, semesterId);
+      setData(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Chyba pri odstraňovaní");
+    } finally {
+      setIsRemovingStudent(false);
+    }
+  }
+
+  function getMoveContext(student: OverviewStudent) {
+    if (!data) return null;
+    const weekOrder = [
+      data.weeks.find((w) => w.is_current),
+      ...data.weeks.filter((w) => !w.is_current),
+    ].filter((w): w is NonNullable<typeof w> => w != null);
+    for (const week of weekOrder) {
+      if (week.lesson_id === null) continue;
+      const sw = student.weeks.find((w) => w.week_number === week.week_number);
+      if (sw?.attendance_id != null) {
+        return { attendanceId: sw.attendance_id, lessonId: week.lesson_id };
+      }
+    }
+    return null;
   }
 
   if (loading) {
@@ -203,11 +278,7 @@ export function SubjectOverview({
   // Filter by search
   let filtered = studentsWithOptimistic;
   if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    filtered = filtered.filter((s) => {
-      const name = `${s.first_name ?? ""} ${s.last_name ?? ""}`.toLowerCase();
-      return name.includes(q);
-    });
+    filtered = filtered.filter((s) => matchesStudentQuery(s, searchQuery));
   }
 
   // Filter by status
@@ -260,6 +331,35 @@ export function SubjectOverview({
                 <Upload size={14} />
                 Export študentov
               </button>
+              <ConfirmationPopover
+                open={deleteSubjectConfirmOpen}
+                onOpenChange={setDeleteSubjectConfirmOpen}
+                title="Potvrdiť zmazanie predmetu"
+                description={
+                  <>
+                    Ste si istý, že chcete zmazať predmet{" "}
+                    <strong>{entry.subject_name}</strong>? Táto akcia sa nedá
+                    vrátiť späť.
+                  </>
+                }
+                confirmLabel="Zmazať"
+                confirmingLabel="Mazanie..."
+                onConfirm={() => void handleDeleteSubject()}
+                isConfirming={isDeleting}
+                trigger={
+                  <button
+                    type="button"
+                    className="flex h-9 w-[187px] items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 font-heading text-sm font-medium text-red-600 shadow-xs hover:bg-red-100"
+                  />
+                }
+                triggerContent={
+                  <>
+                    <Trash2 size={14} />
+                    Zmazať predmet
+                  </>
+                }
+                align="end"
+              />
             </div>
           </div>
         </div>
@@ -325,29 +425,32 @@ export function SubjectOverview({
                   {/* Header */}
                   <div className="flex h-11 items-center border-b border-[rgba(229,229,229,0.9)] px-4">
                     <span className="font-body text-xs font-semibold text-[#525252]">
-                      Meno
+                      ID
                     </span>
                   </div>
                   {/* Rows */}
                   {filtered.map((student, idx) => (
                     <div
                       key={student.isic_identifier}
-                      className="flex h-[72px] items-center gap-3 border-b border-[rgba(229,229,229,0.9)] px-4"
+                      className="flex h-[72px] cursor-pointer items-center gap-3 border-b border-[rgba(229,229,229,0.9)] px-4 hover:bg-[#F0F4FF]"
                       style={{
                         backgroundColor: idx % 2 === 0 ? "white" : "#FAFAFA",
-                        minWidth: 263,
+                        minWidth: 320,
                       }}
+                      onClick={() => setSelectedStudent(student)}
                     >
                       <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#E0ECFF] font-heading text-xs font-medium text-[#1D4ED8]">
-                        {getInitials(student.first_name, student.last_name)}
+                        {getStudentAvatarLabel(student)}
                       </div>
                       <div className="flex min-w-0 flex-col">
-                        <span className="truncate font-heading text-sm font-medium text-[#333]">
-                          {student.first_name} {student.last_name}
+                        <span className="font-heading text-sm font-medium text-[#333]">
+                          {getStudentDisplayId(student)}
                         </span>
-                        <span className="text-xs text-[#7C7C7C]">
-                          ID: {student.isic_identifier}
-                        </span>
+                        {getStudentMeta(student) && (
+                          <span className="text-xs text-[#7C7C7C]">
+                            {getStudentMeta(student)}
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -422,12 +525,55 @@ export function SubjectOverview({
                           <MoreHorizontal size={16} />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem className="cursor-pointer text-sm">
+                          <DropdownMenuItem
+                            className="cursor-pointer text-sm"
+                            disabled={getMoveContext(student) === null}
+                            onClick={() => {
+                              setMoveStudent(student);
+                              setMoveStudentOpen(true);
+                            }}
+                          >
                             Presunúť
                           </DropdownMenuItem>
-                          <DropdownMenuItem className="cursor-pointer text-sm text-red-600">
-                            Odstrániť
-                          </DropdownMenuItem>
+                          <ConfirmationPopover
+                            open={
+                              removeStudentTargetKey ===
+                              getRemoveStudentKey(student)
+                            }
+                            onOpenChange={(open) =>
+                              setRemoveStudentTargetKey(
+                                open ? getRemoveStudentKey(student) : null,
+                              )
+                            }
+                            title="Odstrániť študenta"
+                            description={
+                              <>
+                                Naozaj chcete odstrániť študenta{" "}
+                                <strong>{getStudentDisplayId(student)}</strong>{" "}
+                                z predmetu? Táto akcia sa nedá vrátiť späť.
+                              </>
+                            }
+                            confirmLabel="Odstrániť"
+                            confirmingLabel="Odstraňovanie..."
+                            onConfirm={() => void handleRemoveStudent(student)}
+                            isConfirming={
+                              isRemovingStudent &&
+                              removeStudentTargetKey ===
+                                getRemoveStudentKey(student)
+                            }
+                            trigger={
+                              <DropdownMenuItem
+                                closeOnClick={false}
+                                variant="destructive"
+                                className="cursor-pointer text-sm"
+                              />
+                            }
+                            triggerContent="Odstrániť"
+                            triggerNativeButton={false}
+                            triggerDisabled={!student.enrollment_id}
+                            side="left"
+                            align="start"
+                          />
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -447,6 +593,135 @@ export function SubjectOverview({
         onFilter={setStatusFilter}
         currentFilter={statusFilter}
       />
+
+      <Dialog
+        open={selectedStudent !== null}
+        onOpenChange={(open) => { if (!open) setSelectedStudent(null); }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{selectedStudent ? getStudentDisplayId(selectedStudent) : ""}</DialogTitle>
+          </DialogHeader>
+          {selectedStudent && (
+            <div className="flex flex-col gap-3">
+              {selectedStudent.student_identifier && (
+                <div>
+                  <p className="text-xs text-muted-foreground">ID</p>
+                  <p className="text-sm font-medium">{selectedStudent.student_identifier}</p>
+                </div>
+              )}
+              {selectedStudent.study_identification && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Štúdium</p>
+                  <p className="text-sm">{selectedStudent.study_identification}</p>
+                </div>
+              )}
+              {selectedStudent.email_is && (
+                <div>
+                  <p className="text-xs text-muted-foreground">E-mail</p>
+                  <p className="text-sm">{selectedStudent.email_is}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-muted-foreground">Karta čip</p>
+                <p className="font-mono text-sm">{selectedStudent.isic_identifier}</p>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-[#e5e5e5] pt-3">
+                <button
+                  disabled={getMoveContext(selectedStudent) === null}
+                  onClick={() => {
+                    const s = selectedStudent;
+                    setSelectedStudent(null);
+                    setMoveStudent(s);
+                    setMoveStudentOpen(true);
+                  }}
+                  className="rounded-lg border border-[#d4d4d4] bg-white px-3 py-1.5 font-heading text-sm font-medium text-[#404040] shadow-xs hover:bg-gray-50 disabled:opacity-40"
+                >
+                  Presunúť
+                </button>
+                <ConfirmationPopover
+                  open={
+                    selectedStudent !== null &&
+                    removeStudentTargetKey ===
+                      getRemoveStudentKey(selectedStudent)
+                  }
+                  onOpenChange={(open) =>
+                    setRemoveStudentTargetKey(
+                      open && selectedStudent !== null
+                        ? getRemoveStudentKey(selectedStudent)
+                        : null,
+                    )
+                  }
+                  title="Odstrániť študenta"
+                  description={
+                    <>
+                      Naozaj chcete odstrániť študenta{" "}
+                      <strong>
+                        {selectedStudent
+                          ? getStudentDisplayId(selectedStudent)
+                          : ""}
+                      </strong>{" "}
+                      z predmetu? Táto akcia sa nedá vrátiť späť.
+                    </>
+                  }
+                  confirmLabel="Odstrániť"
+                  confirmingLabel="Odstraňovanie..."
+                  onConfirm={() => {
+                    if (selectedStudent) {
+                      void handleRemoveStudent(selectedStudent);
+                    }
+                  }}
+                  isConfirming={
+                    isRemovingStudent &&
+                    selectedStudent !== null &&
+                    removeStudentTargetKey ===
+                      getRemoveStudentKey(selectedStudent)
+                  }
+                  trigger={
+                    <button
+                      type="button"
+                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 font-heading text-sm font-medium text-red-600 shadow-xs hover:bg-red-100 disabled:opacity-40"
+                    />
+                  }
+                  triggerContent="Odstrániť"
+                  triggerDisabled={!selectedStudent.enrollment_id}
+                  align="end"
+                />
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Move Student Modal */}
+      {moveStudent && (() => {
+        const ctx = getMoveContext(moveStudent);
+        if (!ctx) return null;
+        return (
+          <MoveStudentModal
+            open={moveStudentOpen}
+            onOpenChange={setMoveStudentOpen}
+            student={moveStudent}
+            attendanceId={ctx.attendanceId}
+            currentLessonId={ctx.lessonId}
+            currentEntryId={entryId}
+            subjectName={entry.subject_name}
+            subjectId={subjectId}
+            semesterId={semesterId}
+            lessonInfo={{
+              dayOfWeek: entry.day_of_week,
+              startTime: entry.start_time,
+              endTime: entry.end_time,
+            }}
+            onMoved={async () => {
+              setMoveStudentOpen(false);
+              setMoveStudent(null);
+              const result = await fetchScheduleEntryOverview(subjectId, entryId, semesterId);
+              setData(result);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

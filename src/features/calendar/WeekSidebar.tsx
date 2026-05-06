@@ -69,18 +69,23 @@ export function WeekSidebar({
   onNoteUpdate,
 }: WeekSidebarProps) {
   return (
-    <div className="flex w-52 shrink-0 flex-col border-r border-border-custom">
+    <div className="flex min-h-0 w-52 shrink-0 flex-col border-r border-border-custom">
       <div className="px-4 py-3 font-heading text-sm font-medium text-text">
         Týždne
       </div>
-      <ScrollArea className="flex-1">
-        <div className="flex flex-col">
+      <ScrollArea className="min-h-0 flex-1">
+        {weeks.length === 0 ? (
+          <div className="px-4 py-4 text-sm text-text-secondary">
+            Najprv pridajte semester.
+          </div>
+        ) : (
+          <div className="flex flex-col">
           {weeks.map((week) => {
             const isActive = week.week_number === activeWeek;
             return (
               <div
                 key={week.week_number}
-                className={`flex cursor-pointer items-center justify-between border-l-4 px-4 py-2.5 transition-colors hover:bg-bg-secondary ${
+                className={`flex cursor-pointer items-center justify-between border-l-4 px-4 py-2 transition-colors hover:bg-bg-secondary ${
                   isActive
                     ? "border-l-blue-600 bg-blue-50"
                     : "border-l-transparent"
@@ -108,7 +113,8 @@ export function WeekSidebar({
               </div>
             );
           })}
-        </div>
+          </div>
+        )}
       </ScrollArea>
     </div>
   );
