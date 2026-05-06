@@ -74,7 +74,12 @@ export function WeekSidebar({
         Týždne
       </div>
       <ScrollArea className="flex-1">
-        <div className="flex flex-col">
+        {weeks.length === 0 ? (
+          <div className="px-4 py-4 text-sm text-text-secondary">
+            Najprv pridajte semester.
+          </div>
+        ) : (
+          <div className="flex flex-col">
           {weeks.map((week) => {
             const isActive = week.week_number === activeWeek;
             return (
@@ -108,7 +113,8 @@ export function WeekSidebar({
               </div>
             );
           })}
-        </div>
+          </div>
+        )}
       </ScrollArea>
     </div>
   );

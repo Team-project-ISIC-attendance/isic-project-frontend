@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { components } from "@/api/schema";
 import { importStudentsCsv } from "@/api/import";
 import {
@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Upload } from "lucide-react";
+import { Upload, Download } from "lucide-react";
 import { CsvPreview } from "./CsvPreview";
 
 type SubjectResponse = components["schemas"]["SubjectResponse"];
@@ -20,6 +20,7 @@ interface ImportStudentsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   subjects: SubjectResponse[];
+  defaultSubjectId?: number | null;
   onImported: () => void;
 }
 
@@ -31,6 +32,31 @@ function parseCsv(text: string): { headers: string[]; rows: string[][] } {
   const rows = lines
     .slice(1)
     .map((line) => line.split(delimiter).map((c) => c.trim()));
+
+  const normalizedHeaders = headers.map((h) => h.toLowerCase());
+  const nameIndex = normalizedHeaders.findIndex(
+    (h) => h === "celé meno s titulmi" || h === "cele meno s titulmi",
+  );
+  const idIndex = normalizedHeaders.findIndex((h) => h === "id");
+  const chipIndex = normalizedHeaders.findIndex(
+    (h) => h === "karta - čip" || h === "karta - cip",
+  );
+
+  const selectedPairs: [number, string][] = (
+    [
+      [nameIndex, "Celé meno s titulmi"],
+      [idIndex, "ID"],
+      [chipIndex, "Karta - čip"],
+    ] as [number, string][]
+  ).filter(([idx]) => idx >= 0);
+
+  if (selectedPairs.length > 0) {
+    return {
+      headers: selectedPairs.map(([, label]) => label),
+      rows: rows.map((row) => selectedPairs.map(([idx]) => row[idx] ?? "")),
+    };
+  }
+
   return { headers, rows };
 }
 
@@ -38,6 +64,7 @@ export function ImportStudentsModal({
   open,
   onOpenChange,
   subjects,
+  defaultSubjectId = null,
   onImported,
 }: ImportStudentsModalProps) {
   const [subjectId, setSubjectId] = useState<string>("");
@@ -51,8 +78,8 @@ export function ImportStudentsModal({
   const [submitting, setSubmitting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
-  function resetForm() {
-    setSubjectId("");
+  function resetForm(nextSubjectId?: number | null) {
+    setSubjectId(nextSubjectId ? String(nextSubjectId) : "");
     setFile(null);
     setPreview(null);
     setResult(null);
@@ -61,22 +88,32 @@ export function ImportStudentsModal({
 
   function handleOpenChange(isOpen: boolean) {
     if (!isOpen) {
-      resetForm();
+      resetForm(defaultSubjectId);
     }
     onOpenChange(isOpen);
   }
+
+  useEffect(() => {
+    if (open) {
+      setSubjectId(defaultSubjectId ? String(defaultSubjectId) : "");
+    }
+  }, [defaultSubjectId, open]);
 
   const handleFile = useCallback((f: File) => {
     setFile(f);
     setResult(null);
     setError("");
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
+    void f.arrayBuffer().then((buffer) => {
+      const bytes = new Uint8Array(buffer);
+      let text: string;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        text = new TextDecoder("windows-1250").decode(bytes);
+      }
       const parsed = parseCsv(text);
       setPreview(parsed);
-    };
-    reader.readAsText(f);
+    });
   }, []);
 
   function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
@@ -141,11 +178,12 @@ export function ImportStudentsModal({
                 <div className="flex items-center justify-between gap-3">
                   <Label>CSV súbor</Label>
                   <a
-                    href="/samples/students-import.csv"
-                    download
-                    className="text-xs font-medium text-primary underline"
+                    href="/samples/students-import-semicolon.csv"
+                    download="students-import-vzor.csv"
+                    className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                   >
-                    vzor CSV
+                    <Download size={13} />
+                    Stiahnuť vzor
                   </a>
                 </div>
                 <div
@@ -184,7 +222,10 @@ export function ImportStudentsModal({
 
               {preview && (
                 <div className="flex flex-col gap-2">
-                  <Label>Náhľad</Label>
+                  <Label>Náhľad importu</Label>
+                  <p className="text-xs text-muted-foreground">
+                    STU formát — stĺpce: Celé meno s titulmi, ID, Karta - čip.
+                  </p>
                   <CsvPreview
                     headers={preview.headers}
                     rows={preview.rows}

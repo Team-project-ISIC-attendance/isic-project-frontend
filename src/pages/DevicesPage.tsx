@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import {
   Activity,
@@ -11,12 +11,12 @@ import {
   Settings2,
   ShieldCheck,
   Unlink2,
-  UserPlus,
   Users,
   Wifi,
 } from "lucide-react";
 import {
   CONFIG_SECTIONS,
+  claimDevice,
   fetchDeviceDetail,
   fetchDevicePairing,
   fetchMyDevices,
@@ -31,13 +31,7 @@ import {
   type ConfigSection,
   type HardwareDeviceDetail,
   type HardwareDeviceSummary,
-  type PairingSessionResponse,
 } from "@/api/hardware";
-import {
-  registerTeacher,
-  updateMyIsic,
-  type RegisterTeacherInput,
-} from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -48,7 +42,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -62,23 +55,15 @@ import { cn } from "@/lib/utils";
 
 type SnapshotKind = "health" | "metrics" | "config";
 type ConfigScope = "full" | ConfigSection;
-
-interface TeacherFormState {
-  email: string;
-  password: string;
-  first_name: string;
-  last_name: string;
-  isic_identifier: string;
-}
+type PendingPairing = {
+  deviceId: string;
+  expiresAt: string;
+};
 
 const EMPTY_CONFIG_EDITOR = "{\n  \n}";
-const EMPTY_TEACHER_FORM: TeacherFormState = {
-  email: "",
-  password: "",
-  first_name: "",
-  last_name: "",
-  isic_identifier: "",
-};
+const DEFAULT_PAIRING_TIMEOUT_MS = 120_000;
+const PAIRING_POLL_INTERVAL_MS = 1_000;
+const DEVICE_POLL_INTERVAL_MS = 5_000;
 
 function formatDateTime(value: string | null): string {
   if (!value) {
@@ -115,19 +100,10 @@ function getConfigEditorValue(
   return formatJson(sectionValue ?? {});
 }
 
-function statusVariant(
-  status: string | null,
-): "default" | "outline" | "secondary" | "destructive" {
-  if (status === "ok" || status === "healthy" || status === "completed") {
-    return "default";
-  }
-  if (status === "pending") {
-    return "secondary";
-  }
-  if (status === "expired" || status === "cancelled") {
-    return "destructive";
-  }
-  return "outline";
+function connectivityVariant(
+  isOnline: boolean,
+): "default" | "destructive" {
+  return isOnline ? "default" : "destructive";
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -149,21 +125,16 @@ function getSnapshotTimestamp(
   return detail.last_config_at;
 }
 
-function buildTeacherPayload(
-  form: TeacherFormState,
-): RegisterTeacherInput {
-  return {
-    email: form.email.trim(),
-    password: form.password,
-    first_name: form.first_name.trim(),
-    last_name: form.last_name.trim(),
-    isic_identifier: form.isic_identifier.trim() || null,
-    role: "teacher",
-  };
+function getOfflineNotice(device: HardwareDeviceDetail | null): string {
+  if (!device) {
+    return "Zariadenie je offline. Pockajte na novu komunikaciu a skuste to znova.";
+  }
+
+  return `Zariadenie ${device.device_id} je offline. Pockajte na novu komunikaciu a skuste to znova.`;
 }
 
 export function DevicesPage() {
-  const { user, logout, refreshUser } = useAuth();
+  const { user, logout } = useAuth();
   const isAdmin = user?.role === "admin";
   const isTeacher = user?.role === "teacher";
 
@@ -174,34 +145,63 @@ export function DevicesPage() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [selectedDevice, setSelectedDevice] =
     useState<HardwareDeviceDetail | null>(null);
-  const [pairingSessions, setPairingSessions] = useState<
-    Record<string, PairingSessionResponse | null>
-  >({});
-  const [teacherIsic, setTeacherIsic] = useState(user?.isic_identifier ?? "");
-  const [teacherForm, setTeacherForm] =
-    useState<TeacherFormState>(EMPTY_TEACHER_FORM);
+  const [adminDeviceFilter, setAdminDeviceFilter] = useState<
+    "all" | "online" | "offline"
+  >("all");
   const [configScope, setConfigScope] = useState<ConfigScope>("full");
   const [configEditor, setConfigEditor] = useState(EMPTY_CONFIG_EDITOR);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isSavingIsic, setIsSavingIsic] = useState(false);
-  const [isCreatingTeacher, setIsCreatingTeacher] = useState(false);
   const [isPublishingConfig, setIsPublishingConfig] = useState(false);
   const [activeCommand, setActiveCommand] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingPairing, setPendingPairing] = useState<PendingPairing | null>(
+    null,
+  );
+  const isBackgroundPollingRef = useRef(false);
 
   const claimedDevices = useMemo(
     () => devices.filter((device) => device.is_claimed),
     [devices],
   );
-
-  const pendingPairingDeviceIds = useMemo(
+  const adminDevices = useMemo(
     () =>
-      Object.entries(pairingSessions)
-        .filter(([, session]) => session?.status === "pending")
-        .map(([deviceId]) => deviceId),
-    [pairingSessions],
+      [...devices].sort((left, right) => {
+        if (left.is_online !== right.is_online) {
+          return Number(right.is_online) - Number(left.is_online);
+        }
+        if (left.is_claimed !== right.is_claimed) {
+          return Number(left.is_claimed) - Number(right.is_claimed);
+        }
+        return (right.last_seen_at ?? "").localeCompare(left.last_seen_at ?? "");
+      }),
+    [devices],
+  );
+  const visibleAdminDevices = useMemo(
+    () =>
+      adminDeviceFilter === "all"
+        ? adminDevices
+        : adminDevices.filter((device) =>
+            adminDeviceFilter === "online"
+              ? device.is_online
+              : !device.is_online,
+          ),
+    [adminDeviceFilter, adminDevices],
+  );
+  const visibleSidebarDevices = isAdmin ? visibleAdminDevices : claimedDevices;
+  const selectedUnclaimedDevice = useMemo(
+    () =>
+      unclaimedDevices.find((device) => device.device_id === selectedDeviceId) ??
+      null,
+    [selectedDeviceId, unclaimedDevices],
+  );
+  const hasUnsavedConfigChanges = useMemo(
+    () =>
+      isAdmin &&
+      selectedDevice !== null &&
+      configEditor !== getConfigEditorValue(selectedDevice, configScope),
+    [configEditor, configScope, isAdmin, selectedDevice],
   );
 
   const loadDeviceLists = useCallback(async (deviceIdToKeep?: string | null) => {
@@ -213,13 +213,21 @@ export function DevicesPage() {
     setDevices(allVisibleDevices);
     setUnclaimedDevices(unclaimed);
 
+    const hasClaimedDevice =
+      deviceIdToKeep != null &&
+      allVisibleDevices.some((device) => device.device_id === deviceIdToKeep);
+    const hasUnclaimedDevice =
+      deviceIdToKeep != null &&
+      unclaimed.some((device) => device.device_id === deviceIdToKeep);
     const nextSelectedId =
-      deviceIdToKeep &&
-      allVisibleDevices.some((device) => device.device_id === deviceIdToKeep)
+      hasClaimedDevice || hasUnclaimedDevice
         ? deviceIdToKeep
-        : allVisibleDevices[0]?.device_id ?? null;
+        : allVisibleDevices[0]?.device_id ?? unclaimed[0]?.device_id ?? null;
     setSelectedDeviceId(nextSelectedId);
-    return nextSelectedId;
+    return {
+      canLoadDetail: hasClaimedDevice,
+      nextSelectedId,
+    };
   }, []);
 
   const loadSelectedDevice = useCallback(
@@ -240,8 +248,9 @@ export function DevicesPage() {
 
   const loadPage = useCallback(
     async (deviceIdToKeep: string | null = null) => {
-      const nextSelectedId = await loadDeviceLists(deviceIdToKeep);
-      if (nextSelectedId) {
+      const { nextSelectedId, canLoadDetail } =
+        await loadDeviceLists(deviceIdToKeep);
+      if (nextSelectedId && canLoadDetail) {
         await loadSelectedDevice(nextSelectedId);
       } else {
         setSelectedDevice(null);
@@ -295,33 +304,150 @@ export function DevicesPage() {
   }, [loadPage]);
 
   useEffect(() => {
-    if (!isTeacher || pendingPairingDeviceIds.length === 0) {
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    async function poll() {
+      if (cancelled || isBackgroundPollingRef.current) {
+        return;
+      }
+
+      isBackgroundPollingRef.current = true;
+      try {
+        const { nextSelectedId, canLoadDetail } = await loadDeviceLists(
+          selectedDeviceId,
+        );
+        if (cancelled) {
+          return;
+        }
+
+        if (!nextSelectedId || !canLoadDetail) {
+          setSelectedDevice(null);
+          setConfigEditor(EMPTY_CONFIG_EDITOR);
+          return;
+        }
+
+        if (activeCommand !== null || isPublishingConfig || hasUnsavedConfigChanges) {
+          return;
+        }
+
+        await loadSelectedDevice(nextSelectedId, configScope);
+      } catch {
+        // Ignore background polling failures and keep manual actions responsive.
+      } finally {
+        isBackgroundPollingRef.current = false;
+      }
+    }
+
+    const intervalMs =
+      pendingPairing !== null ? PAIRING_POLL_INTERVAL_MS : DEVICE_POLL_INTERVAL_MS;
+
+    void poll();
+    intervalId = setInterval(() => {
+      void poll();
+    }, intervalMs);
+
+    return () => {
+      cancelled = true;
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [
+    activeCommand,
+    configScope,
+    hasUnsavedConfigChanges,
+    isPublishingConfig,
+    loadDeviceLists,
+    loadSelectedDevice,
+    pendingPairing,
+    selectedDeviceId,
+  ]);
+
+  useEffect(() => {
+    if (pendingPairing === null) {
       return;
     }
 
-    const intervalId = window.setInterval(() => {
-      void Promise.all(
-        pendingPairingDeviceIds.map(async (deviceId) => {
-          const session = await fetchDevicePairing(deviceId);
-          setPairingSessions((current) => ({ ...current, [deviceId]: session }));
+    const pairingSession = pendingPairing;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-          if (session && session.status !== "pending") {
-            await loadPage(deviceId);
+    async function pollPairing() {
+      const parsedDeadline = new Date(pairingSession.expiresAt).getTime();
+      const deadline = Number.isFinite(parsedDeadline)
+        ? parsedDeadline
+        : Date.now() + DEFAULT_PAIRING_TIMEOUT_MS;
+
+      if (Date.now() > deadline) {
+        setPendingPairing(null);
+        await loadPage(pairingSession.deviceId);
+        if (!cancelled) {
+          setNotice(
+            `Pairing pre ${pairingSession.deviceId} sa nepotvrdil v casovom limite. Zariadenie zostava nepriradene.`,
+          );
+        }
+        return;
+      }
+
+      try {
+        const pairing = await fetchDevicePairing(pairingSession.deviceId);
+        if (cancelled) {
+          return;
+        }
+
+        if (pairing?.status === "completed") {
+          setPendingPairing(null);
+          await loadPage(pairingSession.deviceId);
+          if (!cancelled) {
+            setNotice(
+              `Zariadenie ${pairingSession.deviceId} bolo uspesne priradene a presunute do vasich zariadeni.`,
+            );
           }
-        }),
-      ).catch((err: unknown) => {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Nepodarilo sa obnovit pairing",
-        );
-      });
-    }, 3000);
+          return;
+        }
+
+        if (pairing?.status === "cancelled") {
+          setPendingPairing(null);
+          await loadPage(pairingSession.deviceId);
+          if (!cancelled) {
+            setNotice(
+              `Pairing pre ${pairingSession.deviceId} bol zruseny. Obnovte zoznam a skuste to znova.`,
+            );
+          }
+          return;
+        }
+
+        if (pairing != null && pairing.status !== "pending") {
+          setPendingPairing(null);
+          await loadPage(pairingSession.deviceId);
+          if (!cancelled) {
+            setNotice(
+              `Pairing pre ${pairingSession.deviceId} sa nepotvrdil v casovom limite. Zariadenie zostava nepriradene.`,
+            );
+          }
+          return;
+        }
+      } catch {
+        if (cancelled) {
+          return;
+        }
+      }
+
+      timeoutId = window.setTimeout(() => {
+        void pollPairing();
+      }, PAIRING_POLL_INTERVAL_MS);
+    }
+
+    void pollPairing();
 
     return () => {
-      window.clearInterval(intervalId);
+      cancelled = true;
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
     };
-  }, [isTeacher, loadPage, pendingPairingDeviceIds]);
+  }, [loadPage, pendingPairing]);
 
   async function handleRefresh() {
     setError(null);
@@ -341,64 +467,48 @@ export function DevicesPage() {
     }
   }
 
-  async function handleSaveTeacherIsic() {
-    setError(null);
-    setNotice(null);
-    setIsSavingIsic(true);
-
-    try {
-      const normalized = teacherIsic.trim() || null;
-      await updateMyIsic(normalized);
-      await refreshUser();
-      setTeacherIsic(normalized?.toUpperCase() ?? "");
-      setNotice("Teacher ISIC bol ulozeny. Teraz mozete spustit pairing.");
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Nepodarilo sa ulozit ISIC",
-      );
-    } finally {
-      setIsSavingIsic(false);
-    }
-  }
-
-  async function handleCreateTeacher() {
-    setError(null);
-    setNotice(null);
-    setIsCreatingTeacher(true);
-
-    try {
-      const created = await registerTeacher(buildTeacherPayload(teacherForm));
-      setTeacherForm(EMPTY_TEACHER_FORM);
-      setNotice(
-        `Teacher ${created.first_name} ${created.last_name} bol vytvoreny s emailom ${created.email}.`,
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Nepodarilo sa vytvorit noveho ucitela",
-      );
-    } finally {
-      setIsCreatingTeacher(false);
-    }
-  }
-
   async function handleStartPairing(deviceId: string) {
     setError(null);
     setNotice(null);
     setActiveCommand(`pair-${deviceId}`);
 
     try {
-      const session = await startDevicePairing(deviceId);
-      setPairingSessions((current) => ({ ...current, [deviceId]: session }));
+      const pairing = await startDevicePairing(deviceId);
+      setPendingPairing({
+        deviceId,
+        expiresAt: pairing.expires_at,
+      });
       setNotice(
-        `Pairing spusteny pre ${deviceId}. Do ${formatDateTime(session.expires_at)} naskenujte ucitelsky ISIC na tomto zariadeni.`,
+        `Pairing pre ${deviceId} bezi. Naskenujte teacher ISIC na zariadeni a pockajte na potvrdenie.`,
       );
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Nepodarilo sa spustit pairing",
+          : "Nepodarilo sa spustit pairing zariadenia",
+      );
+    } finally {
+      setActiveCommand(null);
+    }
+  }
+
+  async function handleClaimDevice(deviceId: string) {
+    setError(null);
+    setNotice(null);
+    setActiveCommand(`claim-${deviceId}`);
+
+    try {
+      await claimDevice(deviceId);
+      setPendingPairing(null);
+      await loadPage(deviceId);
+      setNotice(
+        `Zariadenie ${deviceId} bolo priradene priamo cez web a presunute do vasich zariadeni.`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Nepodarilo sa priradit zariadenie",
       );
     } finally {
       setActiveCommand(null);
@@ -436,7 +546,6 @@ export function DevicesPage() {
 
     try {
       await releaseDeviceClaim(deviceId);
-      setPairingSessions((current) => ({ ...current, [deviceId]: null }));
       await loadPage(selectedDeviceId === deviceId ? null : selectedDeviceId);
       setNotice(`Zariadenie ${deviceId} bolo odpojene od ucitela.`);
     } catch (err) {
@@ -454,6 +563,11 @@ export function DevicesPage() {
     if (!selectedDeviceId) {
       return;
     }
+    if (!selectedDevice?.is_online) {
+      setError(null);
+      setNotice(getOfflineNotice(selectedDevice));
+      return;
+    }
 
     setError(null);
     setNotice(null);
@@ -464,16 +578,16 @@ export function DevicesPage() {
         ? getSnapshotTimestamp(selectedDevice, kind)
         : null;
 
-      let response;
       if (kind === "health") {
-        response = await requestDeviceHealth(selectedDeviceId);
+        await requestDeviceHealth(selectedDeviceId);
       } else if (kind === "metrics") {
-        response = await requestDeviceMetrics(selectedDeviceId);
+        await requestDeviceMetrics(selectedDeviceId);
       } else {
-        response =
-          configScope === "full"
-            ? await requestDeviceConfig(selectedDeviceId)
-            : await requestDeviceConfig(selectedDeviceId, configScope);
+        if (configScope === "full") {
+          await requestDeviceConfig(selectedDeviceId);
+        } else {
+          await requestDeviceConfig(selectedDeviceId, configScope);
+        }
       }
 
       const updated = await waitForDeviceUpdate(
@@ -485,8 +599,8 @@ export function DevicesPage() {
 
       setNotice(
         updated
-          ? `${response.detail}. Snapshot bol aktualizovany. Topic: ${response.topic}`
-          : `${response.detail}. Topic: ${response.topic}. Backend caka na novu odpoved zariadenia.`,
+          ? "Zariadenie odpovedalo a data boli aktualizovane."
+          : "Poziadavka bola odoslana. Caka sa na novu odpoved zariadenia.",
       );
     } catch (err) {
       setError(
@@ -503,6 +617,11 @@ export function DevicesPage() {
     if (!selectedDeviceId) {
       return;
     }
+    if (!selectedDevice?.is_online) {
+      setError(null);
+      setNotice(getOfflineNotice(selectedDevice));
+      return;
+    }
 
     setError(null);
     setNotice(null);
@@ -510,17 +629,18 @@ export function DevicesPage() {
 
     try {
       const parsed = JSON.parse(configEditor) as Record<string, unknown>;
-      const response =
-        configScope === "full"
-          ? await publishDeviceConfig(selectedDeviceId, parsed)
-          : await publishDeviceConfigSection(
-              selectedDeviceId,
-              configScope,
-              parsed,
-            );
+      if (configScope === "full") {
+        await publishDeviceConfig(selectedDeviceId, parsed);
+      } else {
+        await publishDeviceConfigSection(
+          selectedDeviceId,
+          configScope,
+          parsed,
+        );
+      }
       await loadSelectedDevice(selectedDeviceId, configScope);
       setNotice(
-        `${response.detail}. Topic: ${response.topic}. Ak chcete potvrdit runtime stav, pouzite nacitanie configu.`,
+        "Config bol odoslany na zariadenie. Ak chcete potvrdit aktualny stav, nacitajte config znova.",
       );
     } catch (err) {
       setError(
@@ -533,9 +653,9 @@ export function DevicesPage() {
     }
   }
 
-  const deviceListTitle = isAdmin ? "Vsetky zariadenia" : "Moje zariadenia";
+  const deviceListTitle = isAdmin ? "Inventar zariadeni" : "Moje zariadenia";
   const deviceListDescription = isAdmin
-    ? "Admin vidi kompletne hardware setupy, vratane priradenych a nepriradenych citaciek."
+    ? "Admin vidi jeden spolocny zoznam zariadeni. Priradene aj nepriradene citacky su spolu, bez dalsieho rozdelenia."
     : "Claimnute zariadenia tohto ucitela. Vyberte jedno a testujte requesty alebo config.";
 
   if (isLoading) {
@@ -556,28 +676,37 @@ export function DevicesPage() {
                 variant="outline"
                 className="border-[#bfd3ff] bg-[#eef4ff] text-[#155eef]"
               >
-                {isAdmin ? "Admin console" : "Hardware flow"}
+                {isAdmin ? "Admin console" : "Hardware"}
               </Badge>
               <h1 className="font-heading text-3xl font-medium text-[#13213f]">
-                {isAdmin
-                  ? "Sprava ucitelov a zariadeni"
-                  : "Sprava ISIC zariadeni"}
+                {isAdmin ? "Hardware konzola" : "Teacher hardware"}
               </h1>
               <p className="max-w-3xl text-sm leading-6 text-[#52607a]">
                 {isAdmin
-                  ? "Admin tu vytvara novych teacherov a vidi vsetok hardware napriec systemom. Moze kontrolovat health, metrics, config aj vlastnika zariadenia."
-                  : "Teacher tu nastavi svoj ISIC, spusti pairing na realnej citacke a potom testuje health, metrics a config spravy."}
+                  ? "Admin tu riesi live hardware diagnostiku. Teacheri sa spravuju v admin paneli, tu zostava jeden spolocny inventar zariadeni a detail ich stavu."
+                  : "Teacher si vie pairing spustit vo webe alebo iba naskenovat svoj teacher ISIC na zariadeni. Po uspesnom pairingu tu vidi health a metrics data svojich zariadeni."}
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Link
-                to="/"
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-              >
-                <ArrowLeft className="mr-1 h-4 w-4" />
-                Spat na rozvrh
-              </Link>
+              {!isAdmin && (
+                <Link
+                  to="/"
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                >
+                  <ArrowLeft className="mr-1 h-4 w-4" />
+                  Spat na rozvrh
+                </Link>
+              )}
+              {isAdmin && (
+                <Link
+                  to="/admin"
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                >
+                  <Users className="mr-1 h-4 w-4" />
+                  Sprava teacherov
+                </Link>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -587,7 +716,7 @@ export function DevicesPage() {
                 <RefreshCcw className="mr-1 h-4 w-4" />
                 {isRefreshing ? "Obnovujem..." : "Obnovit"}
               </Button>
-              <Button variant="ghost" size="sm" onClick={logout}>
+              <Button variant="outline" size="sm" onClick={logout}>
                 Odhlasit sa
               </Button>
             </div>
@@ -595,151 +724,69 @@ export function DevicesPage() {
 
           <div className="grid gap-4 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
             {isAdmin ? (
-              <>
+              <div className="grid gap-4 md:col-span-2 md:grid-cols-3">
                 <Card className="border border-[#dbe7ff] bg-[#f9fbff]">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-[#13213f]">
-                      <UserPlus className="h-4 w-4 text-[#155eef]" />
-                      Pridat noveho teachera
-                    </CardTitle>
-                    <CardDescription>
-                      Admin vytvori ucet ucitela, ktory sa potom moze prihlasit a claimnut svoje zariadenia.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid gap-3 md:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="teacher-first-name">Meno</Label>
-                      <Input
-                        id="teacher-first-name"
-                        value={teacherForm.first_name}
-                        onChange={(event) =>
-                          setTeacherForm((current) => ({
-                            ...current,
-                            first_name: event.target.value,
-                          }))
-                        }
-                        className="bg-white"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="teacher-last-name">Priezvisko</Label>
-                      <Input
-                        id="teacher-last-name"
-                        value={teacherForm.last_name}
-                        onChange={(event) =>
-                          setTeacherForm((current) => ({
-                            ...current,
-                            last_name: event.target.value,
-                          }))
-                        }
-                        className="bg-white"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="teacher-email">Email</Label>
-                      <Input
-                        id="teacher-email"
-                        type="email"
-                        value={teacherForm.email}
-                        onChange={(event) =>
-                          setTeacherForm((current) => ({
-                            ...current,
-                            email: event.target.value,
-                          }))
-                        }
-                        className="bg-white"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="teacher-password">Heslo</Label>
-                      <Input
-                        id="teacher-password"
-                        type="password"
-                        value={teacherForm.password}
-                        onChange={(event) =>
-                          setTeacherForm((current) => ({
-                            ...current,
-                            password: event.target.value,
-                          }))
-                        }
-                        className="bg-white"
-                      />
-                    </div>
-                    <div className="space-y-1.5 md:col-span-2">
-                      <Label htmlFor="teacher-isic">Pairing ISIC</Label>
-                      <Input
-                        id="teacher-isic"
-                        value={teacherForm.isic_identifier}
-                        onChange={(event) =>
-                          setTeacherForm((current) => ({
-                            ...current,
-                            isic_identifier: event.target.value,
-                          }))
-                        }
-                        placeholder="volitelne"
-                        className="bg-white"
-                      />
-                    </div>
-                    <div className="md:col-span-2">
-                      <Button
-                        onClick={() => void handleCreateTeacher()}
-                        disabled={isCreatingTeacher}
-                      >
-                        {isCreatingTeacher
-                          ? "Vytvaram..."
-                          : "Vytvorit teachera"}
-                      </Button>
-                    </div>
+                  <CardContent className="space-y-1 pt-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-[#7182a3]">
+                      Zariadenia
+                    </p>
+                    <p className="text-3xl font-medium text-[#13213f]">
+                      {devices.length}
+                    </p>
+                    <p className="text-sm text-[#52607a]">
+                      Vsetky citacky v jednom inventari
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border border-[#dbe7ff] bg-[#f9fbff]">
+                  <CardContent className="space-y-1 pt-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-[#7182a3]">
+                      Online
+                    </p>
+                    <p className="text-3xl font-medium text-[#13213f]">
+                      {devices.filter((device) => device.is_online).length}
+                    </p>
+                    <p className="text-sm text-[#52607a]">
+                      Zariadenia v aktivnom timeout okne
+                    </p>
                   </CardContent>
                 </Card>
 
                 <Card className="border border-[#eadfff] bg-[linear-gradient(135deg,#ffffff_0%,#f6f0ff_100%)]">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-[#13213f]">
-                      <Users className="h-4 w-4 text-[#7c3aed]" />
-                      Admin prehlad
-                    </CardTitle>
-                    <CardDescription>
-                      Teacher vlastni svoje zariadenia. Admin vidi vsetko, vie overit hardware stav a v nutnom pripade uvolnit claim.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm leading-6 text-[#574f6b]">
-                    <p>Jeden teacher moze mat viac zariadeni.</p>
-                    <p>Jedno zariadenie moze byt priradene iba jednemu teacherovi naraz.</p>
-                    <p>Nepriradene zariadenia vidite hned po tom, ako sa ozvu cez MQTT.</p>
+                  <CardContent className="space-y-1 pt-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-[#7182a3]">
+                      Offline
+                    </p>
+                    <p className="text-3xl font-medium text-[#13213f]">
+                      {devices.filter((device) => !device.is_online).length}
+                    </p>
+                    <p className="text-sm text-[#574f6b]">
+                      Potrebuju novy ping alebo novu MQTT spravu
+                    </p>
                   </CardContent>
                 </Card>
-              </>
+              </div>
             ) : (
               <>
                 <Card className="border border-[#dbe7ff] bg-[#f9fbff]">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-[#13213f]">
                       <ShieldCheck className="h-4 w-4 text-[#155eef]" />
-                      Teacher pairing ISIC
+                      Teacher ISIC
                     </CardTitle>
                     <CardDescription>
-                      Ulozte ISIC ucitela, ktory budete skenovat na zariadeni pri claimovani.
+                      Naskenovanie tohto ISIC na citacke zariadenie okamzite priradi tomuto teacherovi aj bez predchadzajuceho kliknutia v UI.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <div className="space-y-1.5">
-                      <Label htmlFor="teacher-own-isic">ISIC identifikator</Label>
-                      <Input
-                        id="teacher-own-isic"
-                        value={teacherIsic}
-                        onChange={(event) => setTeacherIsic(event.target.value)}
-                        placeholder="napr. 1234567890"
-                        className="bg-white"
-                      />
+                      <Label>Aktivny ISIC</Label>
+                      <div className="rounded-2xl border border-[#dbe4f5] bg-white px-4 py-3 text-sm font-medium text-[#13213f]">
+                        {user?.isic_identifier ?? "ISIC nie je nastaveny"}
+                      </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        onClick={() => void handleSaveTeacherIsic()}
-                        disabled={isSavingIsic}
-                      >
-                        {isSavingIsic ? "Ukladam..." : "Ulozit ISIC"}
-                      </Button>
                       <Badge
                         variant={user?.isic_identifier ? "default" : "secondary"}
                       >
@@ -755,16 +802,18 @@ export function DevicesPage() {
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-[#13213f]">
                       <ScanLine className="h-4 w-4 text-[#7c3aed]" />
-                      Teacher flow
+                      Pair cez web alebo scan
                     </CardTitle>
                     <CardDescription>
-                      1. Spustite pairing na neclaimovanom zariadeni. 2. Naskenujte ucitelsky ISIC na tej citacke. 3. Zariadenie sa presunie do vasich zariadeni.
+                      Zariadenie mozete priradit spustenim pairingu vo webe a naslednym teacher scanom, alebo iba priamym teacher scanom na citacke.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm leading-6 text-[#574f6b]">
-                    <p>Backend berie zariadenie genericky podla base topicu a device ID.</p>
-                    <p>Jeden teacher moze claimnut viac zariadeni.</p>
-                    <p>Po claimovani viete zariadeniu poslat live request na health, metrics a config.</p>
+                    <p>Jeden teacher moze mat priradenych viac zariadeni.</p>
+                    <p>Vo webe viete zariadenie priradit aj priamo bez scanovania ISIC.</p>
+                    <p>Teacher scan vzdy vyhra a prepise aj predchadzajuce priradenie zariadenia.</p>
+                    <p>Po uspesnom pairingu sa zariadenie objavi v zozname vlavo.</p>
+                    <p>Teacher tu potom vidi health a metrics data svojich zariadeni.</p>
                   </CardContent>
                 </Card>
               </>
@@ -793,22 +842,45 @@ export function DevicesPage() {
                   {deviceListTitle}
                 </CardTitle>
                 <CardDescription>{deviceListDescription}</CardDescription>
+                {isAdmin && (
+                  <div className="pt-2">
+                    <Select
+                      value={adminDeviceFilter}
+                      onValueChange={(value) =>
+                        setAdminDeviceFilter(
+                          value as "all" | "online" | "offline",
+                        )
+                      }
+                    >
+                      <SelectTrigger className="w-40 bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Vsetky</SelectItem>
+                        <SelectItem value="online">Online</SelectItem>
+                        <SelectItem value="offline">Offline</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="space-y-3">
-                {devices.length === 0 && (
+                {visibleSidebarDevices.length === 0 && (
                   <p className="text-sm text-text-secondary">
-                    {isAdmin
-                      ? "Backend este neeviduje ziadne zariadenie."
-                      : "Zatial nemate claimnute ziadne zariadenie."}
+                    {devices.length === 0
+                      ? isAdmin
+                        ? "Backend este neeviduje ziadne zariadenie."
+                        : "Zatial nemate claimnute ziadne zariadenie."
+                      : "Tomuto filtru nezodpoveda ziadne zariadenie."}
                   </p>
                 )}
 
-                {(isAdmin ? devices : claimedDevices).map((device) => (
+                {visibleSidebarDevices.map((device) => (
                   <button
                     key={device.device_id}
                     type="button"
                     onClick={() => void handleSelectDevice(device.device_id, true)}
-                    className={`w-full rounded-2xl border p-3 text-left transition ${
+                    className={`w-full rounded-2xl border p-4 text-left transition ${
                       selectedDeviceId === device.device_id
                         ? "border-[#155eef] bg-[#eef4ff]"
                         : "border-[#e6edf9] bg-[#fbfdff] hover:border-[#bfd3ff]"
@@ -819,103 +891,124 @@ export function DevicesPage() {
                         <p className="font-medium text-[#13213f]">
                           {device.device_id}
                         </p>
-                        <p className="text-xs text-text-secondary">
-                          {device.base_topic}
-                        </p>
                       </div>
-                      <Badge variant={statusVariant(device.health_state)}>
-                        {device.health_state ?? "unknown"}
-                      </Badge>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <Badge variant={connectivityVariant(device.is_online)}>
+                          {device.connectivity_state}
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-text-secondary">
+                    <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-text-secondary">
                       <span>
-                        {device.is_claimed
-                          ? `Claimed: ${formatDateTime(device.claimed_at)}`
-                          : "Nepriradene"}
+                        Health: {device.health_state ?? "unknown"}
                       </span>
-                      <span>Last seen: {formatDateTime(device.last_seen_at)}</span>
+                      <span>
+                        Last seen: {formatDateTime(device.last_seen_at)}
+                      </span>
                     </div>
                     {isAdmin && (
-                      <p className="mt-2 text-xs text-text-secondary">
-                        Teacher: {device.teacher_name ?? "nikto"}
-                      </p>
+                      <div className="mt-3 flex items-center justify-between gap-2 text-xs text-text-secondary">
+                        <span>Teacher: {device.teacher_name ?? "nikto"}</span>
+                        <span>
+                          {device.is_claimed ? "Priradene" : "Nepriradene"}
+                        </span>
+                      </div>
                     )}
                   </button>
                 ))}
               </CardContent>
             </Card>
 
-            <Card className="border border-[#dbe4f5] bg-white">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-[#13213f]">
-                  <Wifi className="h-4 w-4 text-[#155eef]" />
-                  Nepriradene zariadenia
-                </CardTitle>
-                <CardDescription>
-                  Zariadenia, ktore backend nedrzi pod konkretnym teacherom.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {unclaimedDevices.length === 0 && (
-                  <p className="text-sm text-text-secondary">
-                    Ziadne aktivne nepriradene zariadenie sa nenaslo.
-                  </p>
-                )}
+            {!isAdmin && (
+              <Card className="border border-[#dbe4f5] bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-[#13213f]">
+                    <Wifi className="h-4 w-4 text-[#155eef]" />
+                    Nepriradene zariadenia
+                  </CardTitle>
+                  <CardDescription>
+                    Zariadenia, ktore backend nedrzi pod konkretnym teacherom.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {unclaimedDevices.length === 0 && (
+                    <p className="text-sm text-text-secondary">
+                      Ziadne aktivne nepriradene zariadenie sa nenaslo.
+                    </p>
+                  )}
 
-                {unclaimedDevices.map((device) => {
-                  const pairing = pairingSessions[device.device_id];
-                  return (
-                    <button
-                      key={device.device_id}
-                      type="button"
-                      onClick={() =>
-                        void handleSelectDevice(device.device_id, isAdmin)
-                      }
-                      className="w-full rounded-2xl border border-[#e6edf9] bg-[#fbfdff] p-3 text-left transition hover:border-[#bfd3ff] hover:bg-[#f5f9ff]"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="font-medium text-[#13213f]">
-                            {device.device_id}
-                          </p>
-                          <p className="text-xs text-text-secondary">
-                            {device.base_topic}
-                          </p>
+                  {unclaimedDevices.map((device) => {
+                    return (
+                      <button
+                        key={device.device_id}
+                        type="button"
+                        onClick={() =>
+                          void handleSelectDevice(device.device_id, false)
+                        }
+                        className="w-full rounded-2xl border border-[#e6edf9] bg-[#fbfdff] p-4 text-left transition hover:border-[#bfd3ff] hover:bg-[#f5f9ff]"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-medium text-[#13213f]">
+                              {device.device_id}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={connectivityVariant(device.is_online)}>
+                              {device.connectivity_state}
+                            </Badge>
+                            <Badge variant="outline">nepriradene</Badge>
+                          </div>
                         </div>
-                        <Badge variant={statusVariant(pairing?.status ?? null)}>
-                          {pairing?.status ?? "unclaimed"}
-                        </Badge>
-                      </div>
 
-                      <div className="mt-3 flex items-center justify-between gap-2 text-xs text-text-secondary">
-                        <span>
-                          Naposledy videne: {formatDateTime(device.last_seen_at)}
-                        </span>
-                        {isTeacher ? (
-                          <Button
-                            size="sm"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleStartPairing(device.device_id);
-                            }}
-                            disabled={
-                              activeCommand === `pair-${device.device_id}` ||
-                              !user?.isic_identifier
-                            }
-                          >
-                            {activeCommand === `pair-${device.device_id}`
-                              ? "Spustam..."
-                              : "Pairing"}
-                          </Button>
-                        ) : (
-                          <span className="text-[#52607a]">Admin view</span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </CardContent>
-            </Card>
+                        <div className="mt-3 flex items-center justify-between gap-2 text-xs text-text-secondary">
+                          <span>
+                            Naposledy videne: {formatDateTime(device.last_seen_at)}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleClaimDevice(device.device_id);
+                              }}
+                              disabled={
+                                activeCommand === `claim-${device.device_id}` ||
+                                activeCommand === `pair-${device.device_id}`
+                              }
+                            >
+                              {activeCommand === `claim-${device.device_id}`
+                                ? "Priradzujem..."
+                                : "Pair"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleStartPairing(device.device_id);
+                              }}
+                              disabled={
+                                activeCommand === `claim-${device.device_id}` ||
+                                activeCommand === `pair-${device.device_id}` ||
+                                pendingPairing?.deviceId === device.device_id ||
+                                !user?.isic_identifier ||
+                                !device.is_online
+                              }
+                            >
+                              {activeCommand === `pair-${device.device_id}` ||
+                              pendingPairing?.deviceId === device.device_id
+                                ? "Cakam na scan..."
+                                : "Pair cez scan"}
+                            </Button>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           <div>
@@ -926,7 +1019,9 @@ export function DevicesPage() {
                   Detail zariadenia
                 </CardTitle>
                 <CardDescription>
-                  Vybrane zariadenie mozete otestovat cez live requesty aj config publish.
+                  {isAdmin
+                    ? "Vybrane zariadenie mozete otestovat cez live requesty aj config publish."
+                    : "Claimnute zariadenie mozete skontrolovat cez live requesty pre health a metrics."}
                 </CardDescription>
                 {selectedDevice && selectedDevice.is_claimed && (
                   <CardAction>
@@ -946,45 +1041,147 @@ export function DevicesPage() {
               </CardHeader>
 
               <CardContent className="space-y-6">
-                {!selectedDevice && (
+                {!selectedDevice && selectedUnclaimedDevice && isTeacher && (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-[#e6edf9] bg-[#fbfdff] p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <p className="text-xs uppercase tracking-[0.2em] text-[#7182a3]">
+                            Nepriradene zariadenie
+                          </p>
+                          <p className="text-lg font-medium text-[#13213f]">
+                            {selectedUnclaimedDevice.device_id}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge
+                            variant={connectivityVariant(selectedUnclaimedDevice.is_online)}
+                          >
+                            {selectedUnclaimedDevice.connectivity_state}
+                          </Badge>
+                          <Badge variant="outline">nepriradene</Badge>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 space-y-2 text-sm leading-6 text-[#52607a]">
+                        <p>
+                          Po uspesnom pairingu sa zariadenie presunie do vasich
+                          zariadeni a zobrazi sa tu.
+                        </p>
+                        <p>
+                          Ak teacher nema ISIC, zariadenie viete priradit hned
+                          priamo cez web bez scanovania.
+                        </p>
+                        <p>
+                          Frontend caka iba na potvrdenie z backendu v ramci
+                          timeoutu. Ak potvrdenie nepride, zariadenie ostava iba
+                          online alebo offline, bez dalsieho specialneho stavu.
+                        </p>
+                        <p>
+                          Naposledy videne:{" "}
+                          {formatDateTime(selectedUnclaimedDevice.last_seen_at)}
+                        </p>
+                      </div>
+
+                      {!selectedUnclaimedDevice.is_online && (
+                        <div className="mt-4 rounded-2xl border border-[#f5b7b7] bg-[#fff8e8] px-4 py-3 text-sm text-[#8a5b00]">
+                          Zariadenie je offline. Pairing je docasne vypnuty, kym
+                          sa znova neozve.
+                        </div>
+                      )}
+
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <Button
+                          onClick={() =>
+                            void handleClaimDevice(selectedUnclaimedDevice.device_id)
+                          }
+                          disabled={
+                            activeCommand ===
+                              `claim-${selectedUnclaimedDevice.device_id}` ||
+                            activeCommand ===
+                              `pair-${selectedUnclaimedDevice.device_id}`
+                          }
+                        >
+                          {activeCommand ===
+                          `claim-${selectedUnclaimedDevice.device_id}`
+                            ? "Priradzujem..."
+                            : "Pair"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() =>
+                            void handleStartPairing(selectedUnclaimedDevice.device_id)
+                          }
+                          disabled={
+                            activeCommand ===
+                              `claim-${selectedUnclaimedDevice.device_id}` ||
+                            activeCommand ===
+                              `pair-${selectedUnclaimedDevice.device_id}` ||
+                            pendingPairing?.deviceId ===
+                              selectedUnclaimedDevice.device_id ||
+                            !user?.isic_identifier ||
+                            !selectedUnclaimedDevice.is_online
+                          }
+                        >
+                          {activeCommand ===
+                            `pair-${selectedUnclaimedDevice.device_id}` ||
+                          pendingPairing?.deviceId ===
+                            selectedUnclaimedDevice.device_id
+                            ? "Cakam na scan..."
+                            : "Pair cez scan"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!selectedDevice && !selectedUnclaimedDevice && (
                   <p className="text-sm text-text-secondary">
-                    {isTeacher && selectedDeviceId && !claimedDevices.some((device) => device.device_id === selectedDeviceId)
-                      ? "Po uspesnom pairingu sa zariadenie presunie do vasich zariadeni a zobrazi sa tu."
-                      : "Vyberte zariadenie zo zoznamu vlavo."}
+                    Vyberte zariadenie zo zoznamu vlavo.
                   </p>
                 )}
 
                 {selectedDevice && (
                   <>
+                    {!selectedDevice.is_online && (
+                      <div className="rounded-2xl border border-[#f5b7b7] bg-[#fff8e8] px-4 py-3 text-sm text-[#8a5b00]">
+                        {isAdmin
+                          ? "Zariadenie je offline. Live requesty aj odoslanie configu su docasne vypnute, kym sa znova neozve."
+                          : "Zariadenie je offline. Live requesty su docasne vypnute, kym sa znova neozve."}
+                      </div>
+                    )}
+
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                       <Card size="sm" className="border border-[#e6edf9] bg-[#fbfdff]">
-                        <CardContent className="space-y-1 pt-3">
+                        <CardContent className="space-y-2 pt-4">
                           <p className="text-xs uppercase tracking-[0.2em] text-[#7182a3]">
                             Device ID
                           </p>
                           <p className="font-medium text-[#13213f]">
                             {selectedDevice.device_id}
                           </p>
-                          <p className="text-xs text-text-secondary">
-                            {selectedDevice.base_topic}
-                          </p>
                         </CardContent>
                       </Card>
                       <Card size="sm" className="border border-[#e6edf9] bg-[#fbfdff]">
-                        <CardContent className="space-y-1 pt-3">
+                        <CardContent className="space-y-2 pt-4">
                           <p className="text-xs uppercase tracking-[0.2em] text-[#7182a3]">
-                            Health
+                            Status
                           </p>
-                          <Badge variant={statusVariant(selectedDevice.health_state)}>
-                            {selectedDevice.health_state ?? "unknown"}
+                          <Badge
+                            variant={connectivityVariant(selectedDevice.is_online)}
+                          >
+                            {selectedDevice.connectivity_state}
                           </Badge>
+                          <p className="text-sm text-[#52607a]">
+                            Health: {selectedDevice.health_state ?? "unknown"}
+                          </p>
                           <p className="text-xs text-text-secondary">
                             {selectedDevice.firmware ?? "bez firmware info"}
                           </p>
                         </CardContent>
                       </Card>
                       <Card size="sm" className="border border-[#e6edf9] bg-[#fbfdff]">
-                        <CardContent className="space-y-1 pt-3">
+                        <CardContent className="space-y-2 pt-4">
                           <p className="text-xs uppercase tracking-[0.2em] text-[#7182a3]">
                             Teacher
                           </p>
@@ -999,7 +1196,7 @@ export function DevicesPage() {
                         </CardContent>
                       </Card>
                       <Card size="sm" className="border border-[#e6edf9] bg-[#fbfdff]">
-                        <CardContent className="space-y-1 pt-3">
+                        <CardContent className="space-y-2 pt-4">
                           <p className="text-xs uppercase tracking-[0.2em] text-[#7182a3]">
                             Location
                           </p>
@@ -1012,7 +1209,7 @@ export function DevicesPage() {
                         </CardContent>
                       </Card>
                       <Card size="sm" className="border border-[#e6edf9] bg-[#fbfdff]">
-                        <CardContent className="space-y-1 pt-3">
+                        <CardContent className="space-y-2 pt-4">
                           <p className="text-xs uppercase tracking-[0.2em] text-[#7182a3]">
                             Activity
                           </p>
@@ -1026,7 +1223,9 @@ export function DevicesPage() {
                       </Card>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div
+                      className={`grid gap-4 ${isAdmin ? "md:grid-cols-3" : "md:grid-cols-2"}`}
+                    >
                       <Card className="border border-[#e6edf9] bg-[#fbfdff]">
                         <CardHeader>
                           <CardTitle className="flex items-center gap-2 text-sm text-[#13213f]">
@@ -1042,7 +1241,10 @@ export function DevicesPage() {
                             variant="outline"
                             size="sm"
                             onClick={() => void handleRequestSnapshot("health")}
-                            disabled={activeCommand === "health-request"}
+                            disabled={
+                              activeCommand === "health-request" ||
+                              !selectedDevice.is_online
+                            }
                           >
                             {activeCommand === "health-request"
                               ? "Posielam..."
@@ -1066,7 +1268,10 @@ export function DevicesPage() {
                             variant="outline"
                             size="sm"
                             onClick={() => void handleRequestSnapshot("metrics")}
-                            disabled={activeCommand === "metrics-request"}
+                            disabled={
+                              activeCommand === "metrics-request" ||
+                              !selectedDevice.is_online
+                            }
                           >
                             {activeCommand === "metrics-request"
                               ? "Posielam..."
@@ -1075,32 +1280,43 @@ export function DevicesPage() {
                         </CardContent>
                       </Card>
 
-                      <Card className="border border-[#e6edf9] bg-[#fbfdff]">
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2 text-sm text-[#13213f]">
-                            <RadioTower className="h-4 w-4 text-[#155eef]" />
-                            Config
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <p className="text-xs text-text-secondary">
-                            Posledne ulozenie: {formatDateTime(selectedDevice.last_config_at)}
-                          </p>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void handleRequestSnapshot("config")}
-                            disabled={activeCommand === "config-request"}
-                          >
-                            {activeCommand === "config-request"
-                              ? "Posielam..."
-                              : "Vyziadat config"}
-                          </Button>
-                        </CardContent>
-                      </Card>
+                      {isAdmin && (
+                        <Card className="border border-[#e6edf9] bg-[#fbfdff]">
+                          <CardHeader>
+                            <CardTitle className="flex items-center gap-2 text-sm text-[#13213f]">
+                              <RadioTower className="h-4 w-4 text-[#155eef]" />
+                              Config
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <p className="text-xs text-text-secondary">
+                              Posledne ulozenie: {formatDateTime(selectedDevice.last_config_at)}
+                            </p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void handleRequestSnapshot("config")}
+                              disabled={
+                                activeCommand === "config-request" ||
+                                !selectedDevice.is_online
+                              }
+                            >
+                              {activeCommand === "config-request"
+                                ? "Posielam..."
+                                : "Vyziadat config"}
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      )}
                     </div>
 
-                    <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                    <div
+                      className={`grid gap-4 ${
+                        isAdmin
+                          ? "xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"
+                          : ""
+                      }`}
+                    >
                       <div className="space-y-4">
                         <Card className="border border-[#e6edf9] bg-[#fbfdff]">
                           <CardHeader>
@@ -1129,84 +1345,74 @@ export function DevicesPage() {
                         </Card>
                       </div>
 
-                      <Card className="border border-[#dbe7ff] bg-[#f9fbff]">
-                        <CardHeader>
-                          <CardTitle className="text-sm text-[#13213f]">
-                            Config editor
-                          </CardTitle>
-                          <CardDescription>
-                            Viete si vypytat full config alebo konkretnu sekciu a potom ju rovno poslat spat na zariadenie.
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <div className="grid gap-3 md:grid-cols-[180px_minmax(0,1fr)]">
-                            <div className="space-y-1.5">
-                              <Label>Rozsah configu</Label>
-                              <Select
-                                value={configScope}
-                                onValueChange={(value) => {
-                                  const scope = value as ConfigScope;
-                                  setConfigScope(scope);
-                                  setConfigEditor(
-                                    getConfigEditorValue(selectedDevice, scope),
-                                  );
-                                }}
+                      {isAdmin && (
+                        <Card className="border border-[#dbe7ff] bg-[#f9fbff]">
+                          <CardHeader>
+                            <CardTitle className="text-sm text-[#13213f]">
+                              Config editor
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <div className="grid gap-3 md:grid-cols-[180px_minmax(0,1fr)]">
+                              <div className="space-y-1.5">
+                                <Label>Rozsah</Label>
+                                <Select
+                                  value={configScope}
+                                  onValueChange={(value) => {
+                                    const scope = value as ConfigScope;
+                                    setConfigScope(scope);
+                                    setConfigEditor(
+                                      getConfigEditorValue(selectedDevice, scope),
+                                    );
+                                  }}
+                                >
+                                  <SelectTrigger className="bg-white">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="full">Cely config</SelectItem>
+                                    {CONFIG_SECTIONS.map((section) => (
+                                      <SelectItem key={section} value={section}>
+                                        {section}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+
+                            <textarea
+                              value={configEditor}
+                              onChange={(event) => setConfigEditor(event.target.value)}
+                              className="min-h-[420px] w-full rounded-2xl border border-[#dbe4f5] bg-[#0f172a] p-4 font-mono text-xs leading-5 text-[#dbeafe] outline-none transition focus:border-[#84adff] focus:ring-3 focus:ring-[#84adff]/25"
+                              spellCheck={false}
+                            />
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                onClick={() => void handlePublishConfig()}
+                                disabled={
+                                  isPublishingConfig || !selectedDevice.is_online
+                                }
                               >
-                                <SelectTrigger className="bg-white">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="full">full config</SelectItem>
-                                  {CONFIG_SECTIONS.map((section) => (
-                                    <SelectItem key={section} value={section}>
-                                      {section}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                                {isPublishingConfig
+                                  ? "Odosielam..."
+                                  : "Publikovat config"}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={() =>
+                                  setConfigEditor(
+                                    getConfigEditorValue(selectedDevice, configScope),
+                                  )
+                                }
+                              >
+                                Reset z DB
+                              </Button>
                             </div>
-                            <div className="flex items-end">
-                              <p className="text-xs leading-5 text-text-secondary">
-                                Pri sekcii backend publikuje topic
-                                {" "}
-                                <code>
-                                  config/set/
-                                  {configScope === "full" ? "..." : configScope}
-                                </code>
-                                .
-                              </p>
-                            </div>
-                          </div>
-
-                          <textarea
-                            value={configEditor}
-                            onChange={(event) => setConfigEditor(event.target.value)}
-                            className="min-h-[420px] w-full rounded-2xl border border-[#dbe4f5] bg-[#0f172a] p-4 font-mono text-xs leading-5 text-[#dbeafe] outline-none transition focus:border-[#84adff] focus:ring-3 focus:ring-[#84adff]/25"
-                            spellCheck={false}
-                          />
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button
-                              onClick={() => void handlePublishConfig()}
-                              disabled={isPublishingConfig}
-                            >
-                              {isPublishingConfig
-                                ? "Odosielam..."
-                                : "Publikovat config"}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              onClick={() =>
-                                setConfigEditor(
-                                  getConfigEditorValue(selectedDevice, configScope),
-                                )
-                              }
-                            >
-                              Reset z DB
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
+                          </CardContent>
+                        </Card>
+                      )}
                     </div>
                   </>
                 )}

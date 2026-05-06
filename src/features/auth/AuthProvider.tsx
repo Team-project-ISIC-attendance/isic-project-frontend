@@ -38,10 +38,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (email: string, password: string) => {
       const tokenResponse = await api.login(email, password);
       api.setToken(tokenResponse.access_token);
-      await refreshUser();
-      navigate("/");
+      const userData = await api.getMe();
+      setUser(userData);
+      navigate(userData.role === "admin" ? "/admin" : "/");
     },
-    [navigate, refreshUser],
+    [navigate],
   );
 
   const logout = useCallback(() => {

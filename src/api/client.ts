@@ -9,8 +9,16 @@ export interface RegisterTeacherInput {
   password: string;
   first_name: string;
   last_name: string;
-  isic_identifier?: string | null;
+  isic_identifier: string;
   role?: "teacher";
+}
+
+export interface TeacherUpdateInput {
+  email?: string;
+  password?: string;
+  first_name?: string;
+  last_name?: string;
+  isic_identifier?: string | null;
 }
 
 const API_URL = import.meta.env.VITE_API_URL as string;
@@ -120,5 +128,25 @@ export async function registerTeacher(
       ...payload,
       role: payload.role ?? "teacher",
     }),
+  });
+}
+
+export async function listTeachers(): Promise<AuthUserResponse[]> {
+  return apiFetch<AuthUserResponse[]>("/auth/teachers");
+}
+
+export async function updateTeacher(
+  userId: number,
+  payload: TeacherUpdateInput,
+): Promise<AuthUserResponse> {
+  return apiFetch<AuthUserResponse>(`/auth/teachers/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteTeacher(userId: number): Promise<void> {
+  return apiFetch<void>(`/auth/teachers/${userId}`, {
+    method: "DELETE",
   });
 }

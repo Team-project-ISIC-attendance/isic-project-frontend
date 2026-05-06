@@ -63,6 +63,15 @@ export function updateScheduleEntry(
   );
 }
 
+export function deleteScheduleEntry(
+  semesterId: number,
+  entryId: number,
+): Promise<void> {
+  return apiFetch<void>(`/semesters/${semesterId}/schedule/${entryId}`, {
+    method: "DELETE",
+  });
+}
+
 export function fetchWeeks(semesterId: number): Promise<WeekResponse[]> {
   return apiFetch<WeekResponse[]>(`/semesters/${semesterId}/weeks`);
 }
@@ -98,5 +107,11 @@ export function createSubject(data: SubjectCreate): Promise<SubjectResponse> {
   return apiFetch<SubjectResponse>("/subjects", {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+export function deleteSubject(subjectId: number): Promise<void> {
+  return apiFetch<void>(`/subjects/${subjectId}`, {
+    method: "DELETE",
   });
 }

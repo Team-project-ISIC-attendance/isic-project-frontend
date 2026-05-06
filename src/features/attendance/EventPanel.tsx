@@ -16,6 +16,7 @@ import { StudentCard } from "./StudentCard";
 import { useLiveAttendance } from "./useLiveAttendance";
 import { MoveStudentModal } from "./MoveStudentModal";
 import { FilterModal } from "./FilterModal";
+import { getStudentDisplayId, matchesStudentQuery } from "./studentDisplay";
 
 type AttendanceStudentEntry = components["schemas"]["AttendanceStudentEntry"];
 
@@ -170,10 +171,9 @@ export function EventPanel({
   // Filter by search query
   let filteredStudents = mergedStudents;
   if (searchQuery) {
-    filteredStudents = filteredStudents.filter((s) => {
-      const fullName = `${s.first_name ?? ""} ${s.last_name ?? ""}`.toLowerCase();
-      return fullName.includes(searchQuery.toLowerCase());
-    });
+    filteredStudents = filteredStudents.filter((s) =>
+      matchesStudentQuery(s, searchQuery),
+    );
   }
   if (statusFilter) {
     filteredStudents = filteredStudents.filter((s) => s.status === statusFilter);
@@ -192,11 +192,10 @@ export function EventPanel({
 
   async function handleRemove(student: AttendanceStudentEntry) {
     if (subjectId === null) return;
-    if (!confirm(`Naozaj chcete odstrániť študenta ${student.first_name} ${student.last_name}?`)) return;
 
     const enrollmentId = student.enrollment_id;
     if (enrollmentId === null) {
-      alert("Nie je možné odstrániť študenta — chýba enrollment ID.");
+      window.alert("Nie je možné odstrániť študenta — chýba enrollment ID.");
       return;
     }
 
@@ -204,7 +203,9 @@ export function EventPanel({
       await deleteEnrollment(subjectId, enrollmentId);
       await refresh();
     } catch {
-      alert("Nepodarilo sa odstrániť študenta.");
+      window.alert(
+        `Nepodarilo sa odstrániť študenta ${getStudentDisplayId(student)}.`,
+      );
     }
   }
 
@@ -226,12 +227,12 @@ export function EventPanel({
         <SheetContent
           side="right"
           showCloseButton={false}
-          className="w-[558px] max-w-full overflow-hidden rounded-l-xl border-[0.5px] border-border-custom bg-white p-0"
+          className="w-[min(760px,100vw)] max-w-full overflow-hidden rounded-l-2xl border-[0.5px] border-border-custom bg-white p-0 sm:max-w-none"
         >
           {/* Visually hidden title for accessibility */}
           <SheetTitle className="sr-only">Detaily udalosti</SheetTitle>
 
-          <div className="flex h-full flex-col p-5">
+          <div className="flex h-full flex-col px-6 py-5 sm:px-7 sm:py-6">
             {/* Close button */}
             <div className="flex justify-end">
               <button
@@ -292,7 +293,7 @@ export function EventPanel({
                 </div>
 
                 {/* Search Input */}
-                <div className="mt-4 flex items-center gap-2 rounded-lg border border-[#d4d4d4] bg-white px-3 py-2">
+                <div className="mt-5 flex items-center gap-3 rounded-xl border border-[#d4d4d4] bg-white px-4 py-2.5">
                   <Search size={16} className="shrink-0 text-gray-400" />
                   <input
                     type="text"
@@ -304,7 +305,7 @@ export function EventPanel({
                 </div>
 
                 {/* Student List Header */}
-                <div className="mt-5 flex items-center justify-between">
+                <div className="mt-6 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="font-heading text-sm font-medium">
                       Študenti
@@ -335,7 +336,7 @@ export function EventPanel({
                 </div>
 
                 {/* "Meno" Column Header */}
-                <div className="mt-3 border-b border-[rgba(229,229,229,0.9)] px-[24px] pb-2">
+                <div className="mt-4 border-b border-[rgba(229,229,229,0.9)] px-7 pb-3">
                   <span className="font-body text-xs font-semibold text-[#525252]">
                     Meno
                   </span>

@@ -11,6 +11,8 @@ export interface HardwareDeviceSummary {
   location_id: string | null;
   firmware: string | null;
   health_state: string | null;
+  is_online: boolean;
+  connectivity_state: "online" | "offline" | string;
   last_seen_at: string | null;
   last_attendance_at: string | null;
   last_health_at: string | null;
@@ -146,6 +148,14 @@ export function publishDeviceConfigSection(
       body: JSON.stringify(payload),
     },
   );
+}
+
+export function claimDevice(
+  deviceId: string,
+): Promise<HardwareDeviceDetail> {
+  return apiFetch<HardwareDeviceDetail>(`/hardware/devices/${deviceId}/claim`, {
+    method: "POST",
+  });
 }
 
 export function startDevicePairing(

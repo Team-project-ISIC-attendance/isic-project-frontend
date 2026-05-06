@@ -7,8 +7,13 @@ import {
   Dialog,
   DialogContent,
 } from "@/components/ui/dialog";
+import {
+  getStudentAdditionalInfo,
+  getStudentAvatarLabel,
+  getStudentDisplayId,
+  type StudentLike,
+} from "./studentDisplay";
 
-type AttendanceStudentEntry = components["schemas"]["AttendanceStudentEntry"];
 type ScheduleEntryResponse = components["schemas"]["ScheduleEntryResponse"];
 type LessonResponse = components["schemas"]["LessonResponse"];
 
@@ -31,7 +36,7 @@ const LESSON_TYPE_LABELS: Record<string, string> = {
 interface MoveStudentModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  student: AttendanceStudentEntry;
+  student: StudentLike;
   attendanceId: number;
   currentLessonId: number;
   currentEntryId: number | null;
@@ -108,7 +113,10 @@ export function MoveStudentModal({
                 LESSON_TYPE_LABELS[entry.lesson_type] ?? entry.lesson_type;
               allOptions.push({
                 lessonId: lesson.id,
-                label: `${lessonType}, ${dayName}, ${entry.start_time} - ${entry.end_time} (${lesson.date})`,
+                label:
+                  `${entry.subject_name} · ${lessonType} · ${dayName}, ` +
+                  `${entry.start_time} - ${entry.end_time}` +
+                  `${entry.room ? ` · ${entry.room}` : ""} · ${lesson.date}`,
                 entryId: entry.id,
                 date: lesson.date,
               });
@@ -117,7 +125,9 @@ export function MoveStudentModal({
         }
 
         if (!cancelled) {
-          setTargetOptions(allOptions);
+          setTargetOptions(
+            allOptions.sort((left, right) => left.label.localeCompare(right.label)),
+          );
           setLoadingOptions(false);
         }
       } catch {
@@ -160,11 +170,8 @@ export function MoveStudentModal({
     }
   }
 
-  const initials =
-    (student.first_name?.[0] ?? "") + (student.last_name?.[0] ?? "");
-  const fullName = [student.first_name, student.last_name]
-    .filter(Boolean)
-    .join(" ");
+  const displayId = getStudentDisplayId(student);
+  const additionalInfo = getStudentAdditionalInfo(student);
   const currentSlot = `${DAY_NAMES[lessonInfo.dayOfWeek] ?? ""}, ${lessonInfo.startTime} - ${lessonInfo.endTime}`;
 
   return (
@@ -189,17 +196,26 @@ export function MoveStudentModal({
             Presunúť študenta
           </h2>
           <p className="mt-1 font-body text-sm text-[#525252]">
-            Vyberte deň a čas, na ktorý chcete presunúť študenta.
+            Vyberte konkrétnu rozvrhovú jednotku, na ktorú chcete študenta presunúť.
           </p>
 
           {/* Student Row */}
           <div className="mt-5 flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-full bg-[#dcfce7]">
-              <span className="text-xs font-medium text-green-700">{initials}</span>
+              <span className="text-xs font-medium text-green-700">
+                {getStudentAvatarLabel(student)}
+              </span>
             </div>
-            <span className="font-body text-sm font-semibold text-[#404040]">
-              {fullName}
-            </span>
+            <div className="min-w-0" title={additionalInfo.join("\n")}>
+              <span className="block truncate font-body text-sm font-semibold text-[#404040]">
+                {displayId}
+              </span>
+              {additionalInfo[0] && (
+                <span className="block truncate text-xs text-[#737373]">
+                  {additionalInfo[0]}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Current Slot */}

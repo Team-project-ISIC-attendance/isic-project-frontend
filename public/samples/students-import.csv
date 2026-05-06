@@ -1,4 +1,4 @@
-ISIC,Meno,Priezvisko
-SAMPLE001,Jana,Novakova
-SAMPLE002,Peter,Hrasko
-SAMPLE003,Lucia,Kovacova
+;Celé meno s titulmi;ID;Identifikácia štúdia;Karta - čip;E-mail IS
+1.;Novakova Jana, Bc.;100001;FEI I-API-ISS den [sem 1, roč 1];SAMPLE00100001;jnovakova@stuba.sk
+2.;Hrasko Peter, Bc.;100002;FEI I-API-ISS den [sem 1, roč 1];SAMPLE00200002;phrasko@stuba.sk
+3.;Kovacova Lucia, Bc.;100003;FEI I-API-ISS den [sem 1, roč 1];SAMPLE00300003;lkovacova@stuba.sk
