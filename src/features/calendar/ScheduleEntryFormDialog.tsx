@@ -547,7 +547,10 @@ export function ScheduleEntryFormDialog({
                       if (val !== null) setLessonType(val);
                     }}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger
+                      className="w-full rounded-lg border border-[#d5d7da] bg-white px-3 py-2 text-sm shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]"
+                      style={{ height: 40 }}
+                    >
                       <SelectValue>
                         {{
                           prednaska: "Prednáška",

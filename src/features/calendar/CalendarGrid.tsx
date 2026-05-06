@@ -46,6 +46,12 @@ interface ContextMenuState {
   y: number;
 }
 
+interface HoveredSlotState {
+  dayOfWeek: number;
+  startMinutes: number;
+  top: number;
+}
+
 const SLOT_SNAP_MINUTES = 30;
 const DEFAULT_SLOT_DURATION_MINUTES = 100;
 const MAX_END_MINUTES = END_HOUR * 60 + 59;
@@ -66,6 +72,18 @@ function formatMinutes(totalMinutes: number) {
   const hour = Math.floor(totalMinutes / 60);
   const minute = totalMinutes % 60;
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function slotOverlapsEntry(
+  startMinutes: number,
+  endMinutes: number,
+  entry: ScheduleEntryResponse,
+) {
+  const entryStart = parseTime(entry.start_time);
+  const entryEnd = parseTime(entry.end_time);
+  const entryStartMinutes = entryStart.hour * 60 + entryStart.minute;
+  const entryEndMinutes = entryEnd.hour * 60 + entryEnd.minute;
+  return startMinutes < entryEndMinutes && endMinutes > entryStartMinutes;
 }
 
 interface RenderedEntry {
@@ -143,6 +161,7 @@ export function CalendarGrid({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [isDeletingEntry, setIsDeletingEntry] = useState(false);
+  const [hoveredSlot, setHoveredSlot] = useState<HoveredSlotState | null>(null);
   const scheduleEntriesById = new Map(
     scheduleEntries.map((entry) => [entry.id, entry] as const),
   );
@@ -249,17 +268,79 @@ export function CalendarGrid({
         Math.floor(rawMinutes / SLOT_SNAP_MINUTES) * SLOT_SNAP_MINUTES,
       ),
     );
-    const endMinutes = Math.min(
-      MAX_END_MINUTES,
-      snappedMinutes + DEFAULT_SLOT_DURATION_MINUTES,
-    );
-
     setContextMenu(null);
     setDeleteConfirmOpen(false);
+    setHoveredSlot(null);
     onSlotClick({
       dayOfWeek,
       startTime: formatMinutes(snappedMinutes),
-      endTime: formatMinutes(endMinutes),
+      endTime: formatMinutes(
+        Math.min(
+          MAX_END_MINUTES,
+          snappedMinutes + DEFAULT_SLOT_DURATION_MINUTES,
+        ),
+      ),
+    });
+  }
+
+  function handleDayColumnMouseMove(
+    event: React.MouseEvent<HTMLDivElement>,
+    dayOfWeek: number,
+    isDisabledDay: boolean,
+    entries: LayoutEntry[],
+  ) {
+    if (isDisabledDay || onSlotClick === undefined) {
+      if (hoveredSlot?.dayOfWeek === dayOfWeek) {
+        setHoveredSlot(null);
+      }
+      return;
+    }
+
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest("[data-calendar-entry='true']") !== null
+    ) {
+      if (hoveredSlot?.dayOfWeek === dayOfWeek) {
+        setHoveredSlot(null);
+      }
+      return;
+    }
+
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const offsetY = Math.min(Math.max(0, event.clientY - bounds.top), totalHeight);
+    const rawMinutes = START_HOUR * 60 + (offsetY / HOUR_HEIGHT) * 60;
+    const startMinutes = Math.max(
+      START_HOUR * 60,
+      Math.min(
+        END_HOUR * 60,
+        Math.floor(rawMinutes / SLOT_SNAP_MINUTES) * SLOT_SNAP_MINUTES,
+      ),
+    );
+    const endMinutes = Math.min(
+      MAX_END_MINUTES,
+      startMinutes + SLOT_SNAP_MINUTES,
+    );
+    const occupied = entries.some(({ entry: renderedEntry }) =>
+      slotOverlapsEntry(startMinutes, endMinutes, renderedEntry.entry),
+    );
+
+    if (occupied) {
+      if (hoveredSlot?.dayOfWeek === dayOfWeek) {
+        setHoveredSlot(null);
+      }
+      return;
+    }
+
+    const top = ((startMinutes - START_HOUR * 60) / 60) * HOUR_HEIGHT;
+    setHoveredSlot((prev) => {
+      if (
+        prev !== null &&
+        prev.dayOfWeek === dayOfWeek &&
+        prev.startMinutes === startMinutes
+      ) {
+        return prev;
+      }
+      return { dayOfWeek, startMinutes, top };
     });
   }
 
@@ -359,6 +440,19 @@ export function CalendarGrid({
                       isDisabledDay ? "bg-[#171717]/5" : "cursor-cell transition-colors hover:bg-[#eff6ff]/55"
                     }`}
                     title={isDisabledDay ? undefined : "Kliknite pre pridanie rozvrhovej jednotky"}
+                    onMouseMove={(event) =>
+                      handleDayColumnMouseMove(
+                        event,
+                        day.value,
+                        isDisabledDay,
+                        dayLayout,
+                      )
+                    }
+                    onMouseLeave={() => {
+                      if (hoveredSlot?.dayOfWeek === day.value) {
+                        setHoveredSlot(null);
+                      }
+                    }}
                     onClick={(event) =>
                       handleDayColumnClick(event, day.value, isDisabledDay)
                     }
@@ -388,6 +482,7 @@ export function CalendarGrid({
                         <div
                           key={entry.id}
                           className="absolute cursor-pointer overflow-hidden rounded-md px-2 py-1 shadow-sm"
+                          data-calendar-entry="true"
                           style={{
                             top,
                             height,
@@ -435,11 +530,31 @@ export function CalendarGrid({
                         </div>
                       );
                     })}
-                    {!isDisabledDay && (
-                      <div className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 rounded-full border border-dashed border-[#c7d7f9] bg-white/85 px-2 py-1 text-[11px] text-[#5d6f90] opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                    {!isDisabledDay &&
+                      hoveredSlot?.dayOfWeek === day.value && (
+                      <button
+                        type="button"
+                        className="absolute right-2 z-10 flex h-7 items-center gap-1 rounded-full border border-dashed border-[#c7d7f9] bg-white/95 px-2.5 text-[11px] font-medium text-[#5d6f90] shadow-sm"
+                        style={{ top: hoveredSlot.top + 2 }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSlotClick?.({
+                            dayOfWeek: day.value,
+                            startTime: formatMinutes(hoveredSlot.startMinutes),
+                            endTime: formatMinutes(
+                              Math.min(
+                                MAX_END_MINUTES,
+                                hoveredSlot.startMinutes +
+                                  DEFAULT_SLOT_DURATION_MINUTES,
+                              ),
+                            ),
+                          });
+                          setHoveredSlot(null);
+                        }}
+                      >
                         <Plus className="h-3 w-3" />
                         Pridať
-                      </div>
+                      </button>
                     )}
                   </div>
                 );

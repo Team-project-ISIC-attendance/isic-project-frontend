@@ -43,12 +43,12 @@ export function StudentCard({
 
   return (
     <div
-      className={`flex min-h-[84px] items-start justify-between gap-4 border-b border-[rgba(229,229,229,0.9)] px-7 py-4 ${index % 2 === 0 ? "bg-white" : "bg-[#fafafa]"}`}
+      className={`flex min-h-[84px] items-start justify-between gap-3 border-b border-[rgba(229,229,229,0.9)] px-5 py-4 ${index % 2 === 0 ? "bg-white" : "bg-[#fafafa]"}`}
       style={{
         animation: justScanned ? "scan-highlight 1.5s ease-out" : undefined,
       }}
     >
-      <div className="flex min-w-0 flex-1 items-start gap-3.5 pr-4">
+      <div className="flex min-w-0 flex-1 items-start gap-3 pr-2">
         <Avatar className="mt-0.5 shrink-0">
           <AvatarFallback className="bg-[#eff6ff] text-xs font-medium text-gray-600">
             {getStudentAvatarLabel(student)}
@@ -58,13 +58,13 @@ export function StudentCard({
           className="flex min-w-0 flex-col gap-1"
           title={additionalInfo.join("\n")}
         >
-          <span className="font-body text-sm leading-5 font-medium text-[#3f3f3f]">
+          <span className="font-body text-[13px] leading-5 font-medium text-[#3f3f3f]">
             {displayId}
           </span>
-          {meta && <p className="text-xs leading-5 text-[#525252]">{meta}</p>}
+          {meta && <p className="text-[11px] leading-4 text-[#525252]">{meta}</p>}
         </div>
       </div>
-      <div className="flex shrink-0 items-start gap-4 pt-1">
+      <div className="flex shrink-0 items-start gap-3 pt-1">
         <StatusBadge
           status={student.status}
           onStatusChange={(status) =>

@@ -227,12 +227,16 @@ export function EventPanel({
         <SheetContent
           side="right"
           showCloseButton={false}
-          className="w-[min(760px,100vw)] max-w-full overflow-hidden rounded-l-2xl border-[0.5px] border-border-custom bg-white p-0 sm:max-w-none"
+          className="overflow-hidden rounded-l-2xl border-[0.5px] border-border-custom bg-white p-0"
+          style={{
+            width: "min(560px, 90vw)",
+            maxWidth: "min(560px, 90vw)",
+          }}
         >
           {/* Visually hidden title for accessibility */}
           <SheetTitle className="sr-only">Detaily udalosti</SheetTitle>
 
-          <div className="flex h-full flex-col px-6 py-5 sm:px-7 sm:py-6">
+          <div className="flex h-full flex-col px-4 py-4 sm:px-5 sm:py-5">
             {/* Close button */}
             <div className="flex justify-end">
               <button
@@ -336,7 +340,7 @@ export function EventPanel({
                 </div>
 
                 {/* "Meno" Column Header */}
-                <div className="mt-4 border-b border-[rgba(229,229,229,0.9)] px-7 pb-3">
+                <div className="mt-4 border-b border-[rgba(229,229,229,0.9)] px-5 pb-3">
                   <span className="font-body text-xs font-semibold text-[#525252]">
                     Meno
                   </span>

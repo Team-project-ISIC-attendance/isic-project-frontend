@@ -111,16 +111,11 @@ export function DatePickerField({
   const minDate = parseSemesterDate(min ?? "");
   const maxDate = parseSemesterDate(max ?? "");
   const [open, setOpen] = useState(false);
-  const yearOptions = useMemo(
-    () => Array.from({ length: MAX_YEAR - MIN_YEAR + 1 }, (_, i) => MIN_YEAR + i),
-    [],
-  );
   const [visibleMonth, setVisibleMonth] = useState<Date>(() =>
     selectedDate
       ? new Date(Date.UTC(selectedDate.getUTCFullYear(), selectedDate.getUTCMonth(), 1))
       : todayUTC(),
   );
-
   useEffect(() => {
     if (selectedDate) {
       setVisibleMonth(new Date(Date.UTC(selectedDate.getUTCFullYear(), selectedDate.getUTCMonth(), 1)));
@@ -297,17 +292,9 @@ export function DatePickerField({
                 <option key={month} value={String(index)}>{month}</option>
               ))}
             </select>
-            <select
-              value={String(visibleMonth.getUTCFullYear())}
-              onChange={(e) =>
-                setVisibleMonth(new Date(Date.UTC(Number(e.target.value), visibleMonth.getUTCMonth(), 1)))
-              }
-              className="h-8 w-[76px] cursor-pointer rounded border border-[#d5d7da] bg-white px-1.5 text-sm text-[#181d27] outline-none focus:border-[#1d4ed8]"
-            >
-              {yearOptions.map((year) => (
-                <option key={year} value={String(year)}>{year}</option>
-              ))}
-            </select>
+            <div className="flex h-8 min-w-[76px] items-center justify-center   px-2 text-sm font-medium text-[#181d27]">
+              {visibleMonth.getUTCFullYear()}
+            </div>
             <button
               type="button"
               onClick={() => stepMonth(1)}
