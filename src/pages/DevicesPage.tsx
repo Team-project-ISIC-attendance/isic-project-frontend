@@ -2,17 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import {
   Activity,
+  AlertCircle,
   ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
   Cpu,
   Gauge,
+  Loader2,
   RadioTower,
   RefreshCcw,
   ScanLine,
   Settings2,
   ShieldCheck,
+  Trash2,
   Unlink2,
+  Upload,
   Users,
   Wifi,
+  Zap,
 } from "lucide-react";
 import {
   CONFIG_SECTIONS,
@@ -50,6 +57,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  deleteFirmware,
+  deployFirmware,
+  getOtaStatus,
+  listFirmwares,
+  uploadFirmware,
+  SUPPORTED_BOARDS,
+  type OtaFirmware,
+  type SupportedBoard,
+} from "@/api/ota";
+import { ConfirmationPopover } from "@/components/ui/confirmation-popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import JSZip from "jszip";
 import { useAuth } from "@/features/auth/useAuth";
 import { cn } from "@/lib/utils";
 
@@ -160,6 +188,25 @@ export function DevicesPage() {
     null,
   );
   const isBackgroundPollingRef = useRef(false);
+  const configScopeRef = useRef<ConfigScope>(configScope);
+
+  // OTA state (admin only)
+  const [firmwares, setFirmwares] = useState<OtaFirmware[]>([]);
+  const [otaUploadBinFile, setOtaUploadBinFile] = useState<File | null>(null);
+  const [otaUploadVersion, setOtaUploadVersion] = useState("");
+  const [otaUploadBoard, setOtaUploadBoard] = useState<SupportedBoard | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [deployFw, setDeployFw] = useState<OtaFirmware | null>(null);
+  const [deploySelectedIds, setDeploySelectedIds] = useState<Set<string>>(new Set());
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [deployResults, setDeployResults] = useState<Record<string, "ok" | "error">>({});
+  const [deployCurrentId, setDeployCurrentId] = useState<string | null>(null);
+  const [deployProgress, setDeployProgress] = useState<Record<string, number>>({});
+  const [pairedWarningDeviceId, setPairedWarningDeviceId] = useState<string | null>(null);
+  const [deleteFwId, setDeleteFwId] = useState<number | null>(null);
+  const [isDeletingFw, setIsDeletingFw] = useState(false);
+  const [expandedFwId, setExpandedFwId] = useState<number | null>(null);
+  const zipFileRef = useRef<HTMLInputElement>(null);
 
   const claimedDevices = useMemo(
     () => devices.filter((device) => device.is_claimed),
@@ -220,9 +267,7 @@ export function DevicesPage() {
       deviceIdToKeep != null &&
       unclaimed.some((device) => device.device_id === deviceIdToKeep);
     const nextSelectedId =
-      hasClaimedDevice || hasUnclaimedDevice
-        ? deviceIdToKeep
-        : allVisibleDevices[0]?.device_id ?? unclaimed[0]?.device_id ?? null;
+      hasClaimedDevice || hasUnclaimedDevice ? deviceIdToKeep : null;
     setSelectedDeviceId(nextSelectedId);
     return {
       canLoadDetail: hasClaimedDevice,
@@ -231,7 +276,7 @@ export function DevicesPage() {
   }, []);
 
   const loadSelectedDevice = useCallback(
-    async (deviceId: string | null, scope: ConfigScope = configScope) => {
+    async (deviceId: string | null) => {
       if (!deviceId) {
         setSelectedDevice(null);
         setConfigEditor(EMPTY_CONFIG_EDITOR);
@@ -240,10 +285,9 @@ export function DevicesPage() {
 
       const detail = await fetchDeviceDetail(deviceId);
       setSelectedDevice(detail);
-      setConfigEditor(getConfigEditorValue(detail, scope));
       return detail;
     },
-    [configScope],
+    [],
   );
 
   const loadPage = useCallback(
@@ -251,7 +295,12 @@ export function DevicesPage() {
       const { nextSelectedId, canLoadDetail } =
         await loadDeviceLists(deviceIdToKeep);
       if (nextSelectedId && canLoadDetail) {
-        await loadSelectedDevice(nextSelectedId);
+        const detail = await loadSelectedDevice(nextSelectedId);
+        if (detail?.config_payload != null) {
+          setConfigEditor(
+            getConfigEditorValue(detail, configScopeRef.current),
+          );
+        }
       } else {
         setSelectedDevice(null);
         setConfigEditor(EMPTY_CONFIG_EDITOR);
@@ -286,9 +335,17 @@ export function DevicesPage() {
   );
 
   useEffect(() => {
+    configScopeRef.current = configScope;
+  }, [configScope]);
+
+  useEffect(() => {
     async function init() {
       try {
         await loadPage();
+        if (isAdmin) {
+          const fws = await listFirmwares();
+          setFirmwares(fws);
+        }
       } catch (err) {
         setError(
           err instanceof Error
@@ -331,7 +388,7 @@ export function DevicesPage() {
           return;
         }
 
-        await loadSelectedDevice(nextSelectedId, configScope);
+        await loadSelectedDevice(nextSelectedId);
       } catch {
         // Ignore background polling failures and keep manual actions responsive.
       } finally {
@@ -355,7 +412,6 @@ export function DevicesPage() {
     };
   }, [
     activeCommand,
-    configScope,
     hasUnsavedConfigChanges,
     isPublishingConfig,
     loadDeviceLists,
@@ -434,7 +490,7 @@ export function DevicesPage() {
         }
       }
 
-      timeoutId = window.setTimeout(() => {
+      timeoutId = setTimeout(() => {
         void pollPairing();
       }, PAIRING_POLL_INTERVAL_MS);
     }
@@ -456,6 +512,10 @@ export function DevicesPage() {
 
     try {
       await loadPage(selectedDeviceId);
+      if (isAdmin) {
+        const fws = await listFirmwares();
+        setFirmwares(fws);
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -519,7 +579,16 @@ export function DevicesPage() {
     deviceId: string,
     loadDetail: boolean,
   ) {
+    if (selectedDeviceId === deviceId) {
+      setSelectedDeviceId(null);
+      setSelectedDevice(null);
+      setConfigEditor(EMPTY_CONFIG_EDITOR);
+      setError(null);
+      return;
+    }
+
     setSelectedDeviceId(deviceId);
+    setConfigEditor(EMPTY_CONFIG_EDITOR);
     setError(null);
 
     if (!loadDetail) {
@@ -528,7 +597,10 @@ export function DevicesPage() {
     }
 
     try {
-      await loadSelectedDevice(deviceId);
+      const detail = await loadSelectedDevice(deviceId);
+      if (detail?.config_payload != null) {
+        setConfigEditor(getConfigEditorValue(detail, configScope));
+      }
     } catch (err) {
       setSelectedDevice(null);
       setError(
@@ -638,7 +710,7 @@ export function DevicesPage() {
           parsed,
         );
       }
-      await loadSelectedDevice(selectedDeviceId, configScope);
+      await loadSelectedDevice(selectedDeviceId);
       setNotice(
         "Config bol odoslany na zariadenie. Ak chcete potvrdit aktualny stav, nacitajte config znova.",
       );
@@ -651,6 +723,180 @@ export function DevicesPage() {
     } finally {
       setIsPublishingConfig(false);
     }
+  }
+
+  async function loadFirmwares() {
+    const data = await listFirmwares();
+    setFirmwares(data);
+  }
+
+  async function handleZipFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setOtaUploadBinFile(null);
+    setOtaUploadVersion("");
+    setOtaUploadBoard(null);
+
+    try {
+      const zip = await JSZip.loadAsync(file);
+
+      const manifestEntry = zip.file("manifest.json");
+      if (!manifestEntry) {
+        setError("manifest.json sa nenašiel v archíve.");
+        return;
+      }
+      const manifest = JSON.parse(await manifestEntry.async("text")) as {
+        version?: string;
+        board?: string;
+      };
+      if (typeof manifest.version !== "string" || !manifest.version) {
+        setError("manifest.json neobsahuje pole version.");
+        return;
+      }
+      if (
+        typeof manifest.board !== "string" ||
+        !(SUPPORTED_BOARDS as readonly string[]).includes(manifest.board)
+      ) {
+        setError(`manifest.json obsahuje nepodporovaný board: ${manifest.board ?? "?"}`);
+        return;
+      }
+
+      const binEntry = Object.values(zip.files).find(
+        (f) => !f.dir && f.name.endsWith(".bin"),
+      );
+      if (!binEntry) {
+        setError(".bin súbor sa nenašiel v archíve.");
+        return;
+      }
+
+      const binBlob = await binEntry.async("blob");
+      const binFile = new File([binBlob], binEntry.name, {
+        type: "application/octet-stream",
+      });
+
+      setOtaUploadVersion(manifest.version);
+      setOtaUploadBoard(manifest.board as SupportedBoard);
+      setOtaUploadBinFile(binFile);
+    } catch {
+      setError("Nepodarilo sa otvoriť archív. Skontrolujte, že ide o platný .zip súbor.");
+    }
+  }
+
+  function resetOtaUploadForm() {
+    setOtaUploadBinFile(null);
+    setOtaUploadVersion("");
+    setOtaUploadBoard(null);
+    if (zipFileRef.current) zipFileRef.current.value = "";
+  }
+
+  async function handleOtaUpload() {
+    if (!otaUploadBinFile || !otaUploadVersion || !otaUploadBoard) return;
+    setIsUploading(true);
+    try {
+      await uploadFirmware(otaUploadBinFile, otaUploadVersion, otaUploadBoard);
+      resetOtaUploadForm();
+      await loadFirmwares();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload firmware zlyhal");
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
+  async function handleOtaDelete(firmwareId: number) {
+    setIsDeletingFw(true);
+    try {
+      await deleteFirmware(firmwareId);
+      setDeleteFwId(null);
+      await loadFirmwares();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Mazanie firmware zlyhalo");
+    } finally {
+      setIsDeletingFw(false);
+    }
+  }
+
+  function handleStartDeploy(fw: OtaFirmware) {
+    setDeployFw(fw);
+    setDeploySelectedIds(new Set());
+    setDeployResults({});
+  }
+
+  function handleDeployDeviceClick(device: HardwareDeviceSummary) {
+    if (!device.is_online) return;
+
+    if (deploySelectedIds.has(device.device_id)) {
+      setDeploySelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(device.device_id);
+        return next;
+      });
+      return;
+    }
+
+    if (device.is_claimed) {
+      setPairedWarningDeviceId(device.device_id);
+      return;
+    }
+
+    setDeploySelectedIds((prev) => {
+      const next = new Set(prev);
+      next.add(device.device_id);
+      return next;
+    });
+  }
+
+  function handlePairedWarningConfirm() {
+    if (!pairedWarningDeviceId) return;
+    const id = pairedWarningDeviceId;
+    setPairedWarningDeviceId(null);
+    setDeploySelectedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }
+
+  async function waitForOtaResult(
+    deviceId: string,
+    timeoutMs = 900_000,
+  ): Promise<"ok" | "error"> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise<void>((r) => setTimeout(r, 2000));
+      if (Date.now() >= deadline) break;
+      try {
+        const s = await getOtaStatus(deviceId);
+        if (s.state === "completed") return "ok";
+        if (s.state === "error") return "error";
+        if (s.state === "progress" && s.progress !== undefined) {
+          setDeployProgress((prev) => ({ ...prev, [deviceId]: s.progress! }));
+        }
+      } catch {
+        // 404 = device hasn't reported yet, keep polling
+      }
+    }
+    return "error"; // timeout
+  }
+
+  async function handleConfirmDeploy() {
+    if (!deployFw || deploySelectedIds.size === 0) return;
+    setIsDeploying(true);
+    setDeployProgress({});
+    const results: Record<string, "ok" | "error"> = {};
+    for (const deviceId of deploySelectedIds) {
+      setDeployCurrentId(deviceId);
+      try {
+        await deployFirmware(deployFw.id, deviceId);
+        results[deviceId] = await waitForOtaResult(deviceId);
+      } catch {
+        results[deviceId] = "error";
+      }
+      setDeployResults({ ...results });
+    }
+    setDeployCurrentId(null);
+    setIsDeploying(false);
   }
 
   const deviceListTitle = isAdmin ? "Inventar zariadeni" : "Moje zariadenia";
@@ -918,6 +1164,168 @@ export function DevicesPage() {
                 ))}
               </CardContent>
             </Card>
+
+            {isAdmin && (
+              <Card className="border border-[#dbe4f5] bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-[#13213f]">
+                    <Zap className="h-4 w-4 text-[#155eef]" />
+                    OTA Firmware
+                  </CardTitle>
+                  <CardDescription>
+                    Nahrajte binárku, vyberte zariadenia, spustite vzdialený flash.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label>Firmware archív (.zip)</Label>
+                    <p className="text-xs text-text-secondary">
+                      Výstup buildu: <code>{"{verzia}-{board}.zip"}</code>
+                    </p>
+                    <Input
+                      ref={zipFileRef}
+                      type="file"
+                      accept=".zip"
+                      onChange={(e) => void handleZipFileChange(e)}
+                    />
+                  </div>
+
+                  {otaUploadVersion ? (
+                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[#bfe3c7] bg-[#edf9f0] px-3 py-2 text-xs text-[#045d17]">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                      <strong>{otaUploadVersion}</strong>
+                      <span>·</span>
+                      <strong>{otaUploadBoard ?? "—"}</strong>
+                      <span className="ml-auto text-[#7182a3]">z manifest.json</span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-text-secondary">
+                      Po výbere .zip sa verzia a board načítajú automaticky.
+                    </p>
+                  )}
+
+                  <Button
+                    size="sm"
+                    onClick={() => void handleOtaUpload()}
+                    disabled={
+                      isUploading ||
+                      !otaUploadBinFile ||
+                      !otaUploadVersion ||
+                      !otaUploadBoard
+                    }
+                    className="w-full"
+                  >
+                    <Upload className="mr-1 h-3.5 w-3.5" />
+                    {isUploading ? "Nahravam..." : "Nahrat firmware"}
+                  </Button>
+
+                  {firmwares.length === 0 ? (
+                    <p className="text-xs text-text-secondary">
+                      Ziadny firmware nie je nahratý.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {firmwares.map((fw) => {
+                        const isExpanded = expandedFwId === fw.id;
+                        return (
+                          <div
+                            key={fw.id}
+                            className="rounded-2xl border border-[#e6edf9] bg-[#fbfdff]"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedFwId(isExpanded ? null : fw.id)
+                              }
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
+                            >
+                              <Zap className="h-3.5 w-3.5 shrink-0 text-[#155eef]" />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-[#13213f]">
+                                  {fw.version}
+                                  <span className="ml-1.5 text-xs font-normal text-[#7182a3]">
+                                    {fw.board}
+                                  </span>
+                                </p>
+                                <p className="text-xs text-text-secondary">
+                                  {(fw.size_bytes / 1024).toFixed(1)} kB ·{" "}
+                                  {formatDateTime(fw.uploaded_at)}
+                                </p>
+                              </div>
+                              <ChevronDown
+                                className={cn(
+                                  "h-3.5 w-3.5 shrink-0 text-[#7182a3] transition-transform",
+                                  isExpanded && "rotate-180",
+                                )}
+                              />
+                            </button>
+
+                            {isExpanded && (
+                              <div className="space-y-2 border-t border-[#e6edf9] px-3 py-3">
+                                <div className="space-y-1.5 rounded-xl bg-[#f4f8ff] px-3 py-2.5 text-xs">
+                                  <div className="flex justify-between gap-2">
+                                    <span className="text-[#7182a3]">Súbor</span>
+                                    <span className="font-mono text-[#13213f]">{fw.filename}</span>
+                                  </div>
+                                  <div className="flex justify-between gap-2">
+                                    <span className="text-[#7182a3]">Board</span>
+                                    <span className="font-medium text-[#13213f]">{fw.board}</span>
+                                  </div>
+                                  <div className="flex justify-between gap-2">
+                                    <span className="text-[#7182a3]">Veľkosť</span>
+                                    <span className="text-[#13213f]">
+                                      {fw.size_bytes.toLocaleString()} B
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between gap-2">
+                                    <span className="shrink-0 text-[#7182a3]">MD5</span>
+                                    <span className="truncate font-mono text-[#13213f]">
+                                      {fw.md5}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between gap-2">
+                                    <span className="shrink-0 text-[#7182a3]">Nahraté</span>
+                                    <span className="text-[#13213f]">
+                                      {formatDateTime(fw.uploaded_at)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex gap-1.5">
+                                  <Button
+                                    size="sm"
+                                    className="flex-1"
+                                    onClick={() => handleStartDeploy(fw)}
+                                  >
+                                    <Zap className="mr-1 h-3 w-3" />
+                                    Flash
+                                  </Button>
+                                  <ConfirmationPopover
+                                    open={deleteFwId === fw.id}
+                                    onOpenChange={(open) => {
+                                      if (!isDeletingFw)
+                                        setDeleteFwId(open ? fw.id : null);
+                                    }}
+                                    title="Zmazat firmware"
+                                    description={`Zmazat ${fw.version} (${fw.board})?`}
+                                    confirmLabel="Zmazat"
+                                    confirmingLabel="Mazem..."
+                                    isConfirming={isDeletingFw && deleteFwId === fw.id}
+                                    onConfirm={() => void handleOtaDelete(fw.id)}
+                                    trigger={<Button size="sm" variant="destructive" />}
+                                    triggerContent={<Trash2 className="h-3 w-3" />}
+                                    triggerDisabled={isDeletingFw}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {!isAdmin && (
               <Card className="border border-[#dbe4f5] bg-white">
@@ -1407,7 +1815,7 @@ export function DevicesPage() {
                                   )
                                 }
                               >
-                                Reset z DB
+                                Reset from device
                               </Button>
                             </div>
                           </CardContent>
@@ -1420,7 +1828,245 @@ export function DevicesPage() {
             </Card>
           </div>
         </div>
+
       </div>
+
+      {isAdmin && (() => {
+        const deployDone =
+          !isDeploying && Object.keys(deployResults).length > 0;
+        const successCount = Object.values(deployResults).filter(
+          (r) => r === "ok",
+        ).length;
+        const failCount = Object.values(deployResults).filter(
+          (r) => r === "error",
+        ).length;
+        const doneIndex = Object.keys(deployResults).length;
+        const totalSelected = deploySelectedIds.size;
+
+        return (
+          <Dialog
+            open={deployFw !== null}
+            onOpenChange={(open) => {
+              if (!open && !isDeploying) {
+                setDeployFw(null);
+                setDeployResults({});
+                setDeployProgress({});
+              }
+            }}
+          >
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Flash zariadenia</DialogTitle>
+                <DialogDescription>
+                  {isDeploying
+                    ? `Flashujem ${doneIndex + 1} / ${totalSelected.toString()}…`
+                    : deployDone
+                      ? "Nasadenie dokončené."
+                      : `Firmware ${deployFw?.version} (${deployFw?.board}) — vyberte zariadenia na vzdialený flash.`}
+                </DialogDescription>
+              </DialogHeader>
+
+              {deployDone && (
+                <div
+                  className={cn(
+                    "flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-medium",
+                    failCount === 0
+                      ? "border-[#bfe3c7] bg-[#edf9f0] text-[#045d17]"
+                      : successCount === 0
+                        ? "border-[#f5b7b7] bg-[#fff1f1] text-[#9f1d1d]"
+                        : "border-amber-300 bg-amber-50 text-amber-800",
+                  )}
+                >
+                  {failCount === 0 ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                  )}
+                  <span>
+                    {successCount > 0 && `${successCount.toString()} úspešne`}
+                    {successCount > 0 && failCount > 0 && ", "}
+                    {failCount > 0 && `${failCount.toString()} zlyhalo`}
+                  </span>
+                </div>
+              )}
+
+              <div className="max-h-72 space-y-2 overflow-y-auto py-1">
+                {devices.map((device) => {
+                  const isSelected = deploySelectedIds.has(device.device_id);
+                  const isCurrent = deployCurrentId === device.device_id;
+                  const result = deployResults[device.device_id];
+                  const isOffline = !device.is_online;
+                  return (
+                    <label
+                      key={device.device_id}
+                      className={cn(
+                        "flex items-start gap-3 rounded-2xl border p-3 transition",
+                        isOffline
+                          ? "cursor-not-allowed border-[#e6edf9] bg-[#f8faff] opacity-50"
+                          : result === "ok"
+                            ? "border-[#bfe3c7] bg-[#edf9f0]"
+                            : result === "error"
+                              ? "border-[#f5b7b7] bg-[#fff1f1]"
+                              : isCurrent
+                                ? "border-[#155eef] bg-[#eef4ff]"
+                                : isSelected
+                                  ? "border-[#155eef]/50 bg-[#f4f8ff]"
+                                  : "cursor-pointer border-[#e6edf9] bg-[#fbfdff] hover:border-[#bfd3ff]",
+                        (isDeploying || deployDone) &&
+                          !isOffline &&
+                          "cursor-not-allowed",
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={isSelected}
+                        disabled={isDeploying || deployDone || isOffline}
+                        onChange={() => handleDeployDeviceClick(device)}
+                      />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-[#13213f]">
+                            {device.device_id}
+                          </span>
+                          <Badge variant={connectivityVariant(device.is_online)}>
+                            {device.connectivity_state}
+                          </Badge>
+                          {device.is_claimed && (
+                            <Badge
+                              variant="outline"
+                              className="border-amber-300 bg-amber-50 text-amber-700"
+                            >
+                              priradene
+                            </Badge>
+                          )}
+                        </div>
+                        {isOffline && (
+                          <p className="text-xs text-text-secondary">
+                            Flash nedostupný — zariadenie je offline.
+                          </p>
+                        )}
+                        {isCurrent && (() => {
+                          const pct = deployProgress[device.device_id];
+                          return (
+                            <div className="space-y-1">
+                              <p className="flex items-center gap-1 text-xs text-[#155eef]">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                {pct !== undefined ? `Flashujem… ${pct.toString()}%` : "Flashujem…"}
+                              </p>
+                              {pct !== undefined && (
+                                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#dde8ff]">
+                                  <div
+                                    className="h-full rounded-full bg-[#155eef] transition-all duration-500"
+                                    style={{ width: `${pct.toString()}%` }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        {result && (
+                          <p
+                            className={cn(
+                              "flex items-center gap-1 text-xs font-medium",
+                              result === "ok"
+                                ? "text-green-700"
+                                : "text-red-700",
+                            )}
+                          >
+                            {result === "ok" ? (
+                              <CheckCircle2 className="h-3 w-3" />
+                            ) : (
+                              <AlertCircle className="h-3 w-3" />
+                            )}
+                            {result === "ok"
+                              ? "OTA úspešné — zariadenie sa reštartuje"
+                              : "OTA zlyhalo"}
+                          </p>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant={deployDone ? "default" : "outline"}
+                  onClick={() => {
+                    setDeployFw(null);
+                    setDeployResults({});
+                    setDeployProgress({});
+                  }}
+                  disabled={isDeploying}
+                >
+                  {deployDone ? "Hotovo" : "Zavriet"}
+                </Button>
+                {!deployDone && (
+                  <Button
+                    onClick={() => void handleConfirmDeploy()}
+                    disabled={isDeploying || deploySelectedIds.size === 0}
+                  >
+                    {isDeploying ? (
+                      <>
+                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                        {`${doneIndex.toString()} / ${totalSelected.toString()}`}
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="mr-1 h-4 w-4" />
+                        {`Flash (${deploySelectedIds.size.toString()})`}
+                      </>
+                    )}
+                  </Button>
+                )}
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
+
+      {isAdmin && pairedWarningDeviceId !== null && (() => {
+        const warnDevice = devices.find(
+          (d) => d.device_id === pairedWarningDeviceId,
+        );
+        return (
+          <Dialog
+            open
+            onOpenChange={(open) => {
+              if (!open) setPairedWarningDeviceId(null);
+            }}
+          >
+            <DialogContent className="sm:max-w-sm">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-amber-500" />
+                  Zariadenie má učiteľa
+                </DialogTitle>
+                <DialogDescription>
+                  <strong>{warnDevice?.device_id}</strong> má priradeného
+                  učiteľa <strong>{warnDevice?.teacher_name ?? "?"}</strong>.
+                  Flash môže prerušiť aktívnu reláciu.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setPairedWarningDeviceId(null)}
+                >
+                  Preskočiť
+                </Button>
+                <Button
+                  className="bg-amber-600 text-white hover:bg-amber-700"
+                  onClick={handlePairedWarningConfirm}
+                >
+                  Force flash
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
     </div>
   );
 }
